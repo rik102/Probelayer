@@ -286,7 +286,7 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
   const timeout = Number(process.env.PLAYWRIGHT_TIMEOUT_MS ?? 20000);
 
   try {
-    await page.goto(targetUrl, { waitUntil: "networkidle", timeout });
+    await page.goto(targetUrl, { waitUntil: "load", timeout });
   } catch (error) {
     if (!(error instanceof Error) || !error.message.toLowerCase().includes("timeout")) {
       await browser.close();
@@ -335,13 +335,15 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
       if (fontReady) {
         await fontReady.catch(() => undefined);
       }
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => resolve(), 350)))
+      );
     });
   } catch {
     // Rendering may still be fine even if font readiness is unavailable.
   }
 
-  await page.waitForTimeout(180);
+  await page.waitForTimeout(450);
 
   const facts = await page.evaluate(() => {
     const visibleText = (element: Element | null) => (element?.textContent ?? "").replace(/\s+/g, " ").trim();

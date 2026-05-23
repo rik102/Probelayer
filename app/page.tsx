@@ -91,14 +91,14 @@ function shortSentence(value: string, maxLength = 118) {
 
 function simplifyFindingTheme(value: string) {
   const text = value.toLowerCase();
-  if (/validation|bypass|input|form|submit/.test(text)) return "Form bypass";
-  if (/payment|billing|charge|subscription|price|cost|financial/.test(text)) return "Hidden cost";
-  if (/policy|audit|authorization|permission|access|control|role/.test(text)) return "Access loophole";
+  if (/validation|bypass|input|form|submit/.test(text)) return "Form check issue";
+  if (/payment|billing|charge|subscription|price|cost|financial/.test(text)) return "Cost clarity issue";
+  if (/policy|audit|authorization|permission|access|control|role/.test(text)) return "Access control issue";
   if (/keyboard|focus|contrast|aria|screen reader|accessibility/.test(text)) return "Accessibility issue";
   if (/trust|confidence|skeptical|mistrust/.test(text)) return "Trust issue";
   if (/density|clutter|crowded|overload|competing|hierarchy/.test(text)) return "Too much on screen";
-  if (/button|repeat|retry|double|loading|race|duplicate/.test(text)) return "Repeated action risk";
-  if (/refund|support|cancel|renewal|policy/.test(text)) return "Policy gap";
+  if (/button|repeat|retry|double|loading|race|duplicate/.test(text)) return "Repeat-action risk";
+  if (/refund|support|cancel|renewal|policy/.test(text)) return "Policy issue";
   return value.replace(/\s+/g, " ").trim().replace(/\b\w/g, (char) => char.toUpperCase()).slice(0, 40);
 }
 
@@ -118,15 +118,29 @@ function cleanFindingCopy(value: string, theme: string, fallback: string) {
   return trimmed.length ? trimmed : fallback;
 }
 
+function suggestFixCopy(finding: SupervisorFindingCard) {
+  const recommendation = finding.recommendation?.trim();
+  if (recommendation?.length) return recommendation;
+  const theme = finding.theme.toLowerCase();
+  if (/payment|billing|charge|cost|subscription/.test(theme)) return "Put pricing, renewal, and cancellation details beside the action.";
+  if (/access|policy|permission|authorization|role/.test(theme)) return "Show the rule or approval step before the user commits.";
+  if (/keyboard|focus|contrast|aria|screen reader/.test(theme)) return "Keep focus visible, preserve tab order, and raise contrast.";
+  if (/button|repeat|retry|double|loading|race|duplicate/.test(theme)) return "Disable repeat submits, show progress, and make the action idempotent.";
+  if (/density|clutter|crowded|overload|competing|hierarchy/.test(theme)) return "Reduce competing actions and make one next step dominant.";
+  if (/validation|bypass|input|form|submit/.test(theme)) return "Move validation server-side and keep the user-facing check explicit.";
+  return "Tighten the copy, reduce clutter, and make the next step obvious.";
+}
+
 function stripCloneSuffix(value: string) {
   return value.replace(/\s+copy\s+\d+$/i, "").trim();
 }
 
-function agentAccentStyle(order?: number, selected = false): CSSProperties {
+function agentAccentStyle(order?: number, selected = false, penTest = false): CSSProperties {
+  const baseHue = penTest ? 6 : 206;
   if (!selected || !order) {
-    return { "--agent-hue": 215 } as CSSProperties;
+    return { "--agent-hue": baseHue } as CSSProperties;
   }
-  const hue = (86 + (order - 1) * 37) % 360;
+  const hue = penTest ? 6 + ((order - 1) * 3) % 14 : 202 + ((order - 1) * 5) % 16;
   return { "--agent-hue": hue } as CSSProperties;
 }
 
@@ -195,24 +209,21 @@ function CoverageCard({
   uxSelectedCount,
   redTeamSelectedCount,
   customCount,
-  scenario,
-  modelReady,
   redTeamLevel,
-  supervisorState
+  uxLabel = "UX wing",
+  redLabel = "Red-team wing"
 }: {
   uxSelectedCount: number;
   redTeamSelectedCount: number;
   customCount: number;
-  scenario: AnalysisScenario;
-  modelReady: boolean;
   redTeamLevel: PentestLevel;
-  supervisorState: string;
+  uxLabel?: string;
+  redLabel?: string;
 }) {
   return (
     <div className="card-core hero-panel-core coverage-panel">
       <div className="coverage-panel-top">
         <p className="eyebrow">Central supervisor</p>
-        <span className="status-pill">{modelReady ? "Model ready" : "Demo ready"}</span>
       </div>
       <div className="coverage-panel-copy">
         <h2>Two wings, one supervisor, compact enough for the top fold.</h2>
@@ -220,37 +231,24 @@ function CoverageCard({
           The dashboard runs UX and red-team lanes in parallel, then merges them into one readable report
           without losing attribution.
         </p>
-        <p className="coverage-focus-copy">{supervisorState}</p>
       </div>
-      <div className="coverage-grid">
-        <div>
-          <span>UX personas</span>
+      <div className="coverage-grid compact">
+        <div className="coverage-wing coverage-wing-ux">
+          <span>{uxLabel}</span>
           <strong>{uxSelectedCount}</strong>
         </div>
-        <div>
-          <span>Red-team personas</span>
+        <div className="coverage-wing coverage-wing-red">
+          <span>{redLabel}</span>
           <strong>{redTeamSelectedCount}</strong>
         </div>
-        <div>
+        <div className="coverage-wing">
           <span>Red-team depth</span>
           <strong>{redTeamLevel}</strong>
         </div>
-        <div>
+        <div className="coverage-wing">
           <span>Custom personas</span>
           <strong>{customCount}</strong>
         </div>
-        <div>
-          <span>Run mode</span>
-          <strong>{scenario}</strong>
-        </div>
-        <div>
-          <span>Model route</span>
-          <strong>{modelReady ? "Active" : "Ready"}</strong>
-        </div>
-      </div>
-      <div className="coverage-ribbon">
-        <span className="coverage-chip is-static">Selection drives the run</span>
-        <span className="coverage-chip is-static">No extra focus toggles</span>
       </div>
     </div>
   );
@@ -335,10 +333,11 @@ function PersonaCard({
   onRemove?: () => void;
   isCustom: boolean;
 }) {
-  const accentStyle = agentAccentStyle(selectedOrder, selected);
+  const accentStyle = agentAccentStyle(selectedOrder, selected, persona.penTest);
+  const wingClass = persona.penTest ? "wing-red" : "wing-ux";
   return (
     <button
-      className={`persona-card ${selected ? "is-selected" : "is-idle"}`}
+      className={`persona-card ${wingClass} ${selected ? "is-selected" : "is-idle"}`}
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
@@ -417,12 +416,13 @@ function AgentResultCard({
   findings: SupervisorFindingCard[];
   selected: boolean;
 }) {
-  const accentStyle = agentAccentStyle(order, selected);
+  const accentStyle = agentAccentStyle(order, selected, persona.penTest);
   const primaryFinding = findings[0];
+  const wingClass = persona.penTest ? "wing-red" : "wing-ux";
   const findingLabel = findings.length ? `${findings.length} finding${findings.length === 1 ? "" : "s"}` : "No findings yet";
   const orderLabel = selected ? `#${order}` : "Idle";
   return (
-    <details className={`agent-result-card ${selected ? "is-selected" : "is-idle"}`} style={accentStyle}>
+    <details className={`agent-result-card ${wingClass} ${selected ? "is-selected" : "is-idle"}`} style={accentStyle}>
       <summary className="agent-result-top">
         <div>
           <span className="agent-result-order">{orderLabel}</span>
@@ -439,14 +439,21 @@ function AgentResultCard({
         </div>
       </summary>
       <div className="agent-result-body">
-        <p className="agent-result-title">
-          {primaryFinding ? simplifyFindingTheme(primaryFinding.theme) : "No findings yet"}
-        </p>
-        <p className="agent-result-copy">
-          {primaryFinding
-            ? cleanFindingCopy(primaryFinding.evidence, primaryFinding.theme, "The agent did not surface a unique note yet.")
-            : "This agent is selected and tracked separately, but no unique finding has been surfaced yet."}
-        </p>
+        <div className="agent-result-snapshot">
+          <div>
+            <span>Issue</span>
+            <strong>{primaryFinding ? simplifyFindingTheme(primaryFinding.theme) : "No issue yet"}</strong>
+            <p>
+              {primaryFinding
+                ? cleanFindingCopy(primaryFinding.evidence, primaryFinding.theme, "The agent did not surface a unique note yet.")
+                : "This agent is selected and tracked separately, but no unique finding has been surfaced yet."}
+            </p>
+          </div>
+          <div className="agent-result-fix">
+            <span>Fix</span>
+            <strong>{primaryFinding ? suggestFixCopy(primaryFinding) : "Run the agent to get a suggested fix."}</strong>
+          </div>
+        </div>
         <div className="agent-result-meta">
           <span>{findingLabel}</span>
           <span>{persona.penTest ? "Red-team" : "UX"}</span>
@@ -455,8 +462,12 @@ function AgentResultCard({
           {findings.length ? (
             findings.map((finding, findingIndex) => (
               <div className={`agent-finding-row severity-${finding.severity}`} key={`${finding.persona}-${findingIndex}`}>
-                <strong>{simplifyFindingTheme(finding.theme)}</strong>
+                <div className="agent-finding-row-head">
+                  <strong>{simplifyFindingTheme(finding.theme)}</strong>
+                  <span className={`severity-pill ${finding.severity}`}>{finding.severity}</span>
+                </div>
                 <p>{cleanFindingCopy(finding.evidence, finding.theme, "The page needs a simpler decision path.")}</p>
+                <p className="agent-finding-fix">{suggestFixCopy(finding)}</p>
               </div>
             ))
           ) : (
@@ -772,19 +783,36 @@ function WingSummaryCard({
           <span>Findings</span>
           <strong>{wing.findings.length}</strong>
         </div>
-        <div>
-          <span>Wing</span>
-          <strong>{wing.title}</strong>
-        </div>
-        <div>
-          <span>Depth</span>
-          <strong>{wing.pentestLevel ?? "Standard"}</strong>
-        </div>
       </div>
-      <div className="wing-score-row">
-        <span>Clarity {100 - score.confusion}</span>
-        <span>Confidence {100 - score.trustRisk}</span>
-        <span>Boundary {score.exploitability}</span>
+      <div className="wing-score-list">
+        <div className="wing-score-row">
+          <span>Confusion</span>
+          <strong>{score.confusion}</strong>
+          <div className="meter">
+            <div className="meter-fill" style={{ width: `${Math.max(8, score.confusion)}%` }} />
+          </div>
+        </div>
+        <div className="wing-score-row">
+          <span>Trust risk</span>
+          <strong>{score.trustRisk}</strong>
+          <div className="meter">
+            <div className="meter-fill" style={{ width: `${Math.max(8, score.trustRisk)}%` }} />
+          </div>
+        </div>
+        <div className="wing-score-row">
+          <span>Accessibility</span>
+          <strong>{score.accessibilityFriction}</strong>
+          <div className="meter">
+            <div className="meter-fill" style={{ width: `${Math.max(8, score.accessibilityFriction)}%` }} />
+          </div>
+        </div>
+        <div className="wing-score-row">
+          <span>Exploitability</span>
+          <strong>{score.exploitability}</strong>
+          <div className="meter">
+            <div className="meter-fill" style={{ width: `${Math.max(8, score.exploitability)}%` }} />
+          </div>
+        </div>
       </div>
     </article>
   );
@@ -1158,22 +1186,6 @@ export default function HomePage() {
 
   const uxSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => !persona.penTest), [selectedPersonas]);
   const redTeamSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => persona.penTest), [selectedPersonas]);
-
-  const supervisorSummary = useMemo(() => {
-    if (!result) {
-      return {
-        uxCount: uxSelectedPersonas.length || baselinePersonas.length,
-        redCount: redTeamSelectedPersonas.length || stressLibrary.length,
-        wingState: "Ready to run both wings" as const
-      };
-    }
-
-    return {
-      uxCount: result.wings.ux.personaCount,
-      redCount: result.wings.redTeam.personaCount,
-      wingState: `UX ${result.wings.ux.findings.length} · Red team ${result.wings.redTeam.findings.length}` as const
-    };
-  }, [baselinePersonas.length, redTeamSelectedPersonas.length, result, stressLibrary.length, uxSelectedPersonas.length]);
 
   const supervisorFindings = useMemo(
     () =>
@@ -1614,7 +1626,6 @@ export default function HomePage() {
           >
             Assistant
           </button>
-          <span className="topbar-powered">Powered by Gemini 3.5 Flash</span>
         </div>
       </header>
 
@@ -1670,10 +1681,7 @@ export default function HomePage() {
             uxSelectedCount={uxSelectedPersonas.length || baselinePersonas.length}
             redTeamSelectedCount={redTeamSelectedPersonas.length || stressLibrary.length}
             customCount={customPersonas.length}
-            scenario={scenario}
-            modelReady={Boolean(result?.usedModel)}
             redTeamLevel={redTeamLevel}
-            supervisorState={supervisorSummary.wingState}
           />
         </div>
       </section>
@@ -1886,6 +1894,14 @@ export default function HomePage() {
                   <span className="status-pill">{result ? new URL(result.targetUrl).hostname : "No run yet"}</span>
                 </div>
 
+                {loading ? (
+                  <RunningSupervisorPanel
+                    uxCount={uxSelectedPersonas.length || baselinePersonas.length}
+                    redCount={redTeamSelectedPersonas.length || stressLibrary.length}
+                    redTeamLevel={redTeamLevel}
+                  />
+                ) : null}
+
                 <div className="screenshot-frame">
                   {result?.screenshot ? (
                     <>
@@ -1920,6 +1936,21 @@ export default function HomePage() {
                     </div>
                   )}
                 </div>
+
+                {result ? (
+                  <div className="analysis-note map-status-strip">
+                    <span>Latest run</span>
+                    <p>
+                      {result.wings.ux.personaCount} UX agents and {result.wings.redTeam.personaCount} red-team agents
+                      were inspected in parallel. Results are now pinned below.
+                    </p>
+                  </div>
+                ) : loading ? null : (
+                  <div className="analysis-note map-status-strip">
+                    <span>Ready</span>
+                    <p>Choose agents, run the supervisor, and the loading panel will move here once results land.</p>
+                  </div>
+                )}
 
                 <div className="analysis-note">
                   <span>Interaction scan</span>
@@ -1957,18 +1988,7 @@ export default function HomePage() {
                 <p className="eyebrow">Supervisor output</p>
                 <div className="section-head inline">
                   <h2>Parallel wing report</h2>
-                  <span className="status-pill">
-                    {result?.usedModel ? "Gemini 3.5 Flash active" : "Heuristic fallback ready"}
-                  </span>
                 </div>
-
-                {loading ? (
-                  <RunningSupervisorPanel
-                    uxCount={uxSelectedPersonas.length || baselinePersonas.length}
-                    redCount={redTeamSelectedPersonas.length || stressLibrary.length}
-                    redTeamLevel={redTeamLevel}
-                  />
-                ) : null}
 
                 <div className="supervisor-wing-grid">
                   {result ? (
@@ -1981,25 +2001,6 @@ export default function HomePage() {
                       <p>Run Probelayer to launch the UX suite and the red-team suite together.</p>
                     </div>
                   )}
-                </div>
-
-                <div className="summary-grid">
-                  <div className="summary-box">
-                    <span>Mode</span>
-                    <strong>{result ? result.scenario : scenario}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Depth</span>
-                    <strong>{redTeamLevel}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Inputs</span>
-                    <strong>{result ? result.pageFacts.analysisInputs.join(" + ") : "Screenshot + DOM + personas"}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Supervisor</span>
-                    <strong>{supervisorSummary.wingState}</strong>
-                  </div>
                 </div>
               </div>
             </section>
