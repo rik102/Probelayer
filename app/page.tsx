@@ -5,11 +5,7 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
 import { defaultPersonas, stressPersonas, type Persona, type PersonaInput, normalizePersona } from "@/lib/personas";
-import {
-  type AnalysisScenario,
-  type DialSettings,
-  type PentestLevel,
-} from "@/lib/simulation";
+import { type AnalysisScenario, type DialSettings, type PentestLevel } from "@/lib/simulation";
 import { suggestPersonaPack, type PersonaSuggestion } from "@/lib/persona-assistant";
 import type { SupervisorFinding, SupervisorResult } from "@/lib/supervisor";
 
@@ -36,12 +32,7 @@ const defaultCustomDraft = {
 };
 
 type CustomDraft = typeof defaultCustomDraft;
-type FocusMetric = "confusion" | "trust" | "accessibility" | "abuse";
 type WorkspaceTab = "dashboard" | "github" | "assistant";
-type CloneDraft = {
-  source: Persona | null;
-  count: string;
-};
 type GitHubRepoSummary = {
   id: number;
   name: string;
@@ -54,31 +45,6 @@ type GitHubRepoSummary = {
 };
 type SupervisorFindingCard = SupervisorFinding & {
   wingLabel: string;
-};
-
-const focusConfig: Record<
-  FocusMetric,
-  {
-    label: string;
-    description: string;
-  }
-> = {
-  confusion: {
-    label: "Confusion",
-    description: "Clarify the primary path, reduce ambiguity, and make the next step obvious."
-  },
-  trust: {
-    label: "Trust",
-    description: "Surface pricing, permissions, policy language, and anything that makes users hesitate."
-  },
-  accessibility: {
-    label: "Accessibility",
-    description: "Check keyboard flow, focus order, contrast, and high-load navigation friction."
-  },
-  abuse: {
-    label: "Abuse",
-    description: "Probe repeated submits, bypasses, policy loopholes, and unsafe action paths."
-  }
 };
 
 function resolveTargetUrl(value: string) {
@@ -99,14 +65,79 @@ function cloneCountLabel(count: number) {
   return `${count} copies`;
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseBoundedNumber(value: unknown, fallback: number, min: number, max: number) {
+  const raw = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
+  if (!Number.isFinite(raw)) return fallback;
+  return clampNumber(Math.round(raw), min, max);
+}
+
+function boundedRangeError(label: string, value: unknown, min: number, max: number) {
+  const raw = typeof value === "string" ? value.trim() : String(value ?? "");
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return `${label} must be a number between ${min} and ${max}.`;
+  if (numeric < min || numeric > max) return `${label} must stay between ${min} and ${max}.`;
+  return "";
+}
+
+function shortSentence(value: string, maxLength = 118) {
+  const sentence = value.split(/[.!?]/)[0].replace(/\s+/g, " ").trim();
+  if (!sentence.length) return value.slice(0, maxLength);
+  return sentence.length > maxLength ? `${sentence.slice(0, maxLength - 1).trim()}…` : sentence;
+}
+
+function simplifyFindingTheme(value: string) {
+  const text = value.toLowerCase();
+  if (/validation|bypass|input|form|submit/.test(text)) return "Form bypass";
+  if (/payment|billing|charge|subscription|price|cost|financial/.test(text)) return "Hidden cost";
+  if (/policy|audit|authorization|permission|access|control|role/.test(text)) return "Access loophole";
+  if (/keyboard|focus|contrast|aria|screen reader|accessibility/.test(text)) return "Accessibility issue";
+  if (/trust|confidence|skeptical|mistrust/.test(text)) return "Trust issue";
+  if (/density|clutter|crowded|overload|competing|hierarchy/.test(text)) return "Too much on screen";
+  if (/button|repeat|retry|double|loading|race|duplicate/.test(text)) return "Repeated action risk";
+  if (/refund|support|cancel|renewal|policy/.test(text)) return "Policy gap";
+  return value.replace(/\s+/g, " ").trim().replace(/\b\w/g, (char) => char.toUpperCase()).slice(0, 40);
+}
+
+function simplifyFindingText(value: string, theme: string) {
+  const text = shortSentence(value, 132);
+  const lower = `${theme} ${text}`.toLowerCase();
+  if (/hidden cost/.test(lower)) return text.replace(/audit-log validation dependency loophole/gi, "Cost or policy step is unclear");
+  if (/form bypass/.test(lower)) return text.replace(/client-side validation bypass/gi, "Form checks can be bypassed");
+  if (/access loophole/.test(lower)) return text.replace(/audit-log validation dependency loophole/gi, "Access or policy rule is too loose");
+  if (/too much on screen/.test(lower)) return text.replace(/visual hierarchy/gi, "layout hierarchy");
+  if (/trust issue/.test(lower)) return text.replace(/trust/gi, "trust");
+  return text;
+}
+
+function cleanFindingCopy(value: string, theme: string, fallback: string) {
+  const trimmed = simplifyFindingText(value, theme);
+  return trimmed.length ? trimmed : fallback;
+}
+
+function stripCloneSuffix(value: string) {
+  return value.replace(/\s+copy\s+\d+$/i, "").trim();
+}
+
+function agentAccentStyle(order?: number, selected = false): CSSProperties {
+  if (!selected || !order) {
+    return { "--agent-hue": 215 } as CSSProperties;
+  }
+  const hue = (86 + (order - 1) * 37) % 360;
+  return { "--agent-hue": hue } as CSSProperties;
+}
+
 function normalizePersonaName(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function findFindingsForPersona(findings: SupervisorFindingCard[], personaName: string) {
-  const normalizedPersona = normalizePersonaName(personaName);
+  const normalizedPersona = normalizePersonaName(stripCloneSuffix(personaName));
   return findings.filter((finding) => {
-    const normalizedFinding = normalizePersonaName(finding.persona);
+    const normalizedFinding = normalizePersonaName(stripCloneSuffix(finding.persona));
     return (
       normalizedFinding === normalizedPersona ||
       normalizedFinding.includes(normalizedPersona) ||
@@ -169,8 +200,6 @@ function CoverageCard({
   redTeamLevel,
   activeWorkspace,
   supervisorState,
-  focusMetric,
-  onSelectFocus,
   onSelectWorkspace
 }: {
   uxSelectedCount: number;
@@ -181,11 +210,8 @@ function CoverageCard({
   redTeamLevel: PentestLevel;
   activeWorkspace: WorkspaceTab;
   supervisorState: string;
-  focusMetric: FocusMetric;
-  onSelectFocus: (metric: FocusMetric) => void;
   onSelectWorkspace: (workspace: WorkspaceTab) => void;
 }) {
-  const focus = focusConfig[focusMetric];
   return (
     <div className="card-core hero-panel-core coverage-panel">
       <div className="coverage-panel-top">
@@ -217,7 +243,6 @@ function CoverageCard({
           without losing attribution.
         </p>
         <p className="coverage-focus-copy">{supervisorState}</p>
-        <p className="coverage-focus-copy">{focus.description}</p>
       </div>
       <div className="coverage-grid">
         <div>
@@ -245,17 +270,9 @@ function CoverageCard({
           <strong>{modelReady ? "Active" : "Ready"}</strong>
         </div>
       </div>
-      <div className="coverage-ribbon" role="toolbar" aria-label="Focus metrics">
-        {Object.entries(focusConfig).map(([key, entry]) => (
-          <button
-            key={key}
-            type="button"
-            className={`coverage-chip ${focusMetric === key ? "is-selected" : ""}`}
-            onClick={() => onSelectFocus(key as FocusMetric)}
-          >
-            {entry.label}
-          </button>
-        ))}
+      <div className="coverage-ribbon">
+        <span className="coverage-chip is-static">Selection drives the run</span>
+        <span className="coverage-chip is-static">No extra focus toggles</span>
       </div>
     </div>
   );
@@ -264,20 +281,15 @@ function CoverageCard({
 function ScoreCard({
   label,
   value,
-  description,
-  active
+  description
 }: {
   label: string;
   value: number;
   description: string;
-  active?: boolean;
 }) {
   const scoreHue = `${Math.max(0, 120 - value * 1.2)}deg`;
   return (
-    <article
-      className={`score-card ${active ? "is-focused" : ""}`}
-      style={{ "--score-hue": scoreHue } as CSSProperties}
-    >
+    <article className="score-card" style={{ "--score-hue": scoreHue } as CSSProperties}>
       <div className="score-card-top">
         <span>{label}</span>
         <strong>{value}</strong>
@@ -299,23 +311,30 @@ function FindingCard({
   index: number;
   agentNumber?: number;
 }) {
+  const theme = simplifyFindingTheme(finding.theme);
+  const evidence = cleanFindingCopy(finding.evidence, theme, "The page needs a simpler decision path.");
+  const recommendation = cleanFindingCopy(finding.recommendation, theme, "Make the next step clearer and easier to trust.");
+  const orderLabel = agentNumber ? `#${agentNumber}` : `#${index + 1}`;
+
   return (
-    <article className={`finding-card severity-${finding.severity}`}>
-      <div className="finding-head">
+    <details className={`finding-card severity-${finding.severity}`} style={agentAccentStyle(agentNumber, Boolean(agentNumber))}>
+      <summary className="finding-head">
         <span className="finding-index">{index + 1}</span>
         <div>
-          <h3>{finding.theme}</h3>
+          <h3>{theme}</h3>
           <p>
-            Agent #{agentNumber ?? index + 1} · {finding.persona} felt {finding.emotion}. {finding.wingLabel}
+            {orderLabel} · {finding.persona} · {finding.wingLabel}
           </p>
         </div>
         <span className="severity-pill">{finding.severity}</span>
+      </summary>
+      <div className="finding-body">
+        <p className="finding-copy">{evidence}</p>
+        <p className="finding-fix">
+          <strong>Fix</strong> {recommendation}
+        </p>
       </div>
-      <p className="finding-copy">{finding.evidence}</p>
-      <p className="finding-fix">
-        <strong>Fix</strong> {finding.recommendation}
-      </p>
-    </article>
+    </details>
   );
 }
 
@@ -338,12 +357,14 @@ function PersonaCard({
   onRemove?: () => void;
   isCustom: boolean;
 }) {
+  const accentStyle = agentAccentStyle(selectedOrder, selected);
   return (
     <button
       className={`persona-card ${selected ? "is-selected" : "is-idle"}`}
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
+      style={accentStyle}
     >
       <div className="persona-card-top">
         <div>
@@ -351,8 +372,8 @@ function PersonaCard({
           <span>{persona.lens}</span>
         </div>
         <span className={`persona-pill ${selected ? "is-selected" : "is-idle"}`}>
-            {selected ? `#${selectedOrder ?? 0}` : "Idle"}
-          </span>
+          {selected ? `#${selectedOrder ?? 0}` : "Idle"}
+        </span>
       </div>
       <p>{persona.goal}</p>
       <div className="persona-meta">
@@ -418,30 +439,57 @@ function AgentResultCard({
   findings: SupervisorFindingCard[];
   selected: boolean;
 }) {
+  const accentStyle = agentAccentStyle(order, selected);
   const primaryFinding = findings[0];
+  const findingLabel = findings.length ? `${findings.length} finding${findings.length === 1 ? "" : "s"}` : "No findings yet";
+  const orderLabel = selected ? `#${order}` : "Idle";
   return (
-    <article className={`agent-result-card ${selected ? "is-selected" : "is-idle"}`}>
-      <div className="agent-result-top">
+    <details className={`agent-result-card ${selected ? "is-selected" : "is-idle"}`} style={accentStyle}>
+      <summary className="agent-result-top">
         <div>
-          <span className="agent-result-order">#{order}</span>
+          <span className="agent-result-order">{orderLabel}</span>
           <strong>{persona.name}</strong>
           <p>{wingLabel}</p>
         </div>
-        <span className={`severity-pill ${primaryFinding?.severity ?? "low"}`}>
-          {primaryFinding ? primaryFinding.severity : "idle"}
-        </span>
+        <div className="agent-result-summary-right">
+          <span className={`agent-result-state ${selected ? "is-selected" : "is-idle"}`}>
+            {selected ? "Selected" : "Idle"}
+          </span>
+          <span className={`severity-pill ${primaryFinding?.severity ?? "low"}`}>
+            {primaryFinding ? primaryFinding.severity : "idle"}
+          </span>
+        </div>
+      </summary>
+      <div className="agent-result-body">
+        <p className="agent-result-title">
+          {primaryFinding ? simplifyFindingTheme(primaryFinding.theme) : "No findings yet"}
+        </p>
+        <p className="agent-result-copy">
+          {primaryFinding
+            ? cleanFindingCopy(primaryFinding.evidence, primaryFinding.theme, "The agent did not surface a unique note yet.")
+            : "This agent is selected and tracked separately, but no unique finding has been surfaced yet."}
+        </p>
+        <div className="agent-result-meta">
+          <span>{findingLabel}</span>
+          <span>{persona.penTest ? "Red-team" : "UX"}</span>
+        </div>
+        <div className="agent-result-findings">
+          {findings.length ? (
+            findings.map((finding, findingIndex) => (
+              <div className={`agent-finding-row severity-${finding.severity}`} key={`${finding.persona}-${findingIndex}`}>
+                <strong>{simplifyFindingTheme(finding.theme)}</strong>
+                <p>{cleanFindingCopy(finding.evidence, finding.theme, "The page needs a simpler decision path.")}</p>
+              </div>
+            ))
+          ) : (
+            <div className="agent-finding-row muted">
+              <strong>Nothing new here yet</strong>
+              <p>The agent is still selected, but there is no dedicated finding to show yet.</p>
+            </div>
+          )}
+        </div>
       </div>
-      <p className="agent-result-title">{primaryFinding?.theme || "No dedicated finding yet"}</p>
-      <p className="agent-result-copy">
-        {primaryFinding
-          ? primaryFinding.evidence
-          : "This agent is selected and tracked separately, but no unique finding has been surfaced yet."}
-      </p>
-      <div className="agent-result-meta">
-        <span>{findings.length} finding{findings.length === 1 ? "" : "s"}</span>
-        <span>{persona.penTest ? "Red-team" : "UX"}</span>
-      </div>
-    </article>
+    </details>
   );
 }
 
@@ -450,13 +498,15 @@ function PersonaEditorModal({
   draft,
   onChange,
   onSave,
-  onDiscard
+  onDiscard,
+  error
 }: {
   persona: Persona | null;
   draft: PersonaInput | null;
   onChange: (draft: PersonaInput) => void;
   onSave: () => void;
   onDiscard: () => void;
+  error?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -540,8 +590,14 @@ function PersonaEditorModal({
               min="1"
               max="100"
               value={draft.patience ?? 45}
-              onChange={(event) => onChange({ ...draft, patience: Number(event.target.value) })}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  patience: parseBoundedNumber(event.target.value, 45, 1, 100)
+                })
+              }
             />
+            <small className="field-hint">Range 1-100</small>
           </label>
           <label className="field">
             <span>Trust</span>
@@ -550,8 +606,14 @@ function PersonaEditorModal({
               min="1"
               max="100"
               value={draft.trust ?? 50}
-              onChange={(event) => onChange({ ...draft, trust: Number(event.target.value) })}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  trust: parseBoundedNumber(event.target.value, 50, 1, 100)
+                })
+              }
             />
+            <small className="field-hint">Range 1-100</small>
           </label>
           <label className="field wide">
             <span>Accessibility needs</span>
@@ -599,6 +661,7 @@ function PersonaEditorModal({
             <span>→</span>
           </button>
         </div>
+        {error ? <p className="error-banner">{error}</p> : null}
       </div>
     </div>
   );
@@ -705,22 +768,12 @@ function ClonePersonaModal({
 
 function WingSummaryCard({
   wing,
-  activeMetric,
   title
 }: {
   wing: SupervisorResult["wings"]["ux"];
-  activeMetric: FocusMetric;
   title: string;
 }) {
   const score = wing.scores;
-  const accentLabel =
-    activeMetric === "confusion"
-      ? "Confusion"
-      : activeMetric === "trust"
-        ? "Trust"
-        : activeMetric === "accessibility"
-          ? "Accessibility"
-          : "Abuse";
 
   return (
     <article className={`wing-summary wing-${wing.wing}`}>
@@ -742,8 +795,8 @@ function WingSummaryCard({
           <strong>{wing.findings.length}</strong>
         </div>
         <div>
-          <span>Accent</span>
-          <strong>{accentLabel}</strong>
+          <span>Wing</span>
+          <strong>{wing.title}</strong>
         </div>
         <div>
           <span>Depth</span>
@@ -751,9 +804,9 @@ function WingSummaryCard({
         </div>
       </div>
       <div className="wing-score-row">
-        <span>Confusion {score.confusion}</span>
-        <span>Trust {score.trustRisk}</span>
-        <span>Exploit {score.exploitability}</span>
+        <span>Clarity {100 - score.confusion}</span>
+        <span>Confidence {100 - score.trustRisk}</span>
+        <span>Boundary {score.exploitability}</span>
       </div>
     </article>
   );
@@ -995,7 +1048,7 @@ function RunningSupervisorPanel({
             <span />
             <span />
           </div>
-          <p>Scanning for confusion, trust breaks, overload, and accessibility friction.</p>
+          <p>Scanning for UX friction, layout pressure, and clarity gaps.</p>
         </div>
         <div className="running-wing running-wing-red">
           <div className="running-wing-top">
@@ -1007,7 +1060,22 @@ function RunningSupervisorPanel({
             <span />
             <span />
           </div>
-          <p>Probing for button mashing, repeated submits, bypasses, and weak boundaries.</p>
+          <p>Probing for repeated actions, bypasses, and weak boundaries.</p>
+        </div>
+      </div>
+      <div className="loading-grid" aria-hidden="true">
+        <div className="loading-caption">
+          <span>Gathering signals</span>
+          <span>Model + heuristics + browser capture</span>
+        </div>
+        <div className="loading-track">
+          <span />
+        </div>
+        <div className="loading-track">
+          <span />
+        </div>
+        <div className="loading-track">
+          <span />
         </div>
       </div>
     </div>
@@ -1021,14 +1089,15 @@ export default function HomePage() {
   const [scenario, setScenario] = useState<AnalysisScenario>("balanced");
   const [dialSettings, setDialSettings] = useState<DialSettings>(defaultDialSettings);
   const [redTeamLevel, setRedTeamLevel] = useState<PentestLevel>("quick");
-  const [focusMetric, setFocusMetric] = useState<FocusMetric>("confusion");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("dashboard");
   const [customPersonas, setCustomPersonas] = useState<PersonaInput[]>([]);
   const [personaOverrides, setPersonaOverrides] = useState<Record<string, PersonaInput>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>(defaultPersonas.map((persona) => persona.id));
   const [draft, setDraft] = useState<CustomDraft>(defaultCustomDraft);
+  const [draftError, setDraftError] = useState("");
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
   const [editingDraft, setEditingDraft] = useState<PersonaInput | null>(null);
+  const [editingError, setEditingError] = useState("");
   const [cloningPersona, setCloningPersona] = useState<Persona | null>(null);
   const [cloneCountDraft, setCloneCountDraft] = useState("1");
   const [result, setResult] = useState<SupervisorResult | null>(null);
@@ -1112,26 +1181,27 @@ export default function HomePage() {
     [result]
   );
 
-  const selectedAgentCards = useMemo(
+  const agentCards = useMemo(
     () =>
-      selectedPersonas.map((persona) => {
+      allPersonas.map((persona) => {
         const order = selectedOrderMap.get(persona.id) ?? 0;
         const wingLabel = persona.penTest ? "Red Team Suite" : "UX Suite";
         const personaFindings = result ? findFindingsForPersona(supervisorFindings, persona.name) : [];
+        const selected = selectedIds.includes(persona.id);
         return {
           persona,
           order,
           wingLabel,
           findings: personaFindings,
-          selected: selectedIds.includes(persona.id)
+          selected
         };
       }),
-    [result, selectedIds, selectedOrderMap, selectedPersonas, supervisorFindings]
+    [allPersonas, result, selectedIds, selectedOrderMap, supervisorFindings]
   );
 
   const selectedAgentSummary = useMemo(
-    () => selectedAgentCards.map((entry) => `#${entry.order} ${entry.persona.name}`),
-    [selectedAgentCards]
+    () => agentCards.filter((entry) => entry.selected).map((entry) => `#${entry.order} ${entry.persona.name}`),
+    [agentCards]
   );
 
   useEffect(() => {
@@ -1199,6 +1269,16 @@ export default function HomePage() {
     if (!hydrateReady) return;
     window.localStorage.setItem("probelayer-persona-overrides", JSON.stringify(personaOverrides));
   }, [personaOverrides, hydrateReady]);
+
+  useEffect(() => {
+    if (draftError) setDraftError("");
+    // Reset the create-form error as soon as the user changes the draft again.
+  }, [draft]);
+
+  useEffect(() => {
+    if (editingError) setEditingError("");
+    // Reset the edit-form error as soon as the user changes the draft again.
+  }, [editingDraft]);
 
   useEffect(() => {
     if (scenario !== "pen-test") return;
@@ -1370,8 +1450,19 @@ export default function HomePage() {
 
   function addCustomPersona() {
     const name = draft.name.trim();
-    if (!name) return;
+    if (!name) {
+      setDraftError("Give the persona a name before saving.");
+      return;
+    }
+    const patienceError = boundedRangeError("Patience", draft.patience, 1, 100);
+    const trustError = boundedRangeError("Trust", draft.trust, 1, 100);
+    if (patienceError || trustError) {
+      setDraftError(patienceError || trustError);
+      return;
+    }
     const id = draft.id.trim() || makePersonaId(name);
+    const patience = parseBoundedNumber(draft.patience, 45, 1, 100);
+    const trust = parseBoundedNumber(draft.trust, 50, 1, 100);
 
     const persona: PersonaInput = {
       id,
@@ -1379,8 +1470,8 @@ export default function HomePage() {
       lens: draft.lens.trim(),
       goal: draft.goal.trim(),
       riskBias: draft.riskBias.trim(),
-      patience: Number(draft.patience),
-      trust: Number(draft.trust),
+      patience,
+      trust,
       accessibility: draft.accessibility.trim(),
       tone: draft.tone.trim(),
       penTest: draft.penTest,
@@ -1393,6 +1484,7 @@ export default function HomePage() {
     setCustomPersonas((current) => [...current, persona]);
     setSelectedIds((current) => arrayToggle(current, id));
     setDraft(defaultCustomDraft);
+    setDraftError("");
   }
 
   function openCloneModal(persona: Persona) {
@@ -1448,15 +1540,28 @@ export default function HomePage() {
   function openPersonaEditor(persona: Persona) {
     setEditingPersona(persona);
     setEditingDraft(buildPersonaInput(persona));
+    setEditingError("");
   }
 
   function discardPersonaEdits() {
     setEditingPersona(null);
     setEditingDraft(null);
+    setEditingError("");
   }
 
   function savePersonaEdits() {
     if (!editingPersona || !editingDraft) return;
+    const name = editingDraft.name?.trim() ?? "";
+    if (!name) {
+      setEditingError("Give the persona a name before saving.");
+      return;
+    }
+    const patienceError = boundedRangeError("Patience", editingDraft.patience, 1, 100);
+    const trustError = boundedRangeError("Trust", editingDraft.trust, 1, 100);
+    if (patienceError || trustError) {
+      setEditingError(patienceError || trustError);
+      return;
+    }
     const normalized = normalizePersona({ ...editingDraft, id: editingPersona.id }, 0);
     setPersonaOverrides((current) => ({
       ...current,
@@ -1464,6 +1569,7 @@ export default function HomePage() {
     }));
     setEditingPersona(null);
     setEditingDraft(null);
+    setEditingError("");
   }
 
   return (
@@ -1554,8 +1660,6 @@ export default function HomePage() {
             redTeamLevel={redTeamLevel}
             activeWorkspace={activeWorkspace}
             supervisorState={supervisorSummary.wingState}
-            focusMetric={focusMetric}
-            onSelectFocus={setFocusMetric}
             onSelectWorkspace={setActiveWorkspace}
           />
         </div>
@@ -1695,8 +1799,14 @@ export default function HomePage() {
                       min="1"
                       max="100"
                       value={draft.patience}
-                      onChange={(event) => setDraft((current) => ({ ...current, patience: event.target.value }))}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          patience: String(parseBoundedNumber(event.target.value, 45, 1, 100))
+                        }))
+                      }
                     />
+                    <small className="field-hint">Range 1-100</small>
                   </label>
                   <label className="field">
                     <span>Trust</span>
@@ -1705,8 +1815,14 @@ export default function HomePage() {
                       min="1"
                       max="100"
                       value={draft.trust}
-                      onChange={(event) => setDraft((current) => ({ ...current, trust: event.target.value }))}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          trust: String(parseBoundedNumber(event.target.value, 50, 1, 100))
+                        }))
+                      }
                     />
+                    <small className="field-hint">Range 1-100</small>
                   </label>
                   <label className="field wide">
                     <span>Accessibility needs</span>
@@ -1743,6 +1859,7 @@ export default function HomePage() {
                     Reset form
                   </button>
                 </div>
+                {draftError ? <p className="error-banner">{draftError}</p> : null}
               </div>
             </section>
           </div>
@@ -1769,8 +1886,8 @@ export default function HomePage() {
                 <div className="supervisor-wing-grid">
                   {result ? (
                     <>
-                      <WingSummaryCard wing={result.wings.ux} activeMetric={focusMetric} title="Wing 1" />
-                      <WingSummaryCard wing={result.wings.redTeam} activeMetric={focusMetric} title="Wing 2" />
+                      <WingSummaryCard wing={result.wings.ux} title="Wing 1" />
+                      <WingSummaryCard wing={result.wings.redTeam} title="Wing 2" />
                     </>
                   ) : (
                     <div className="empty-findings persona-empty supervisor-empty">
@@ -1781,13 +1898,20 @@ export default function HomePage() {
 
                 <div className="agent-roster">
                   <div className="section-head inline">
-                    <h3>Selected agents</h3>
-                    <span className="status-pill">{selectedAgentSummary.length} tracked</span>
+                    <h3>All agents</h3>
+                    <span className="status-pill">
+                      {selectedAgentSummary.length}/{agentCards.length} selected
+                    </span>
                   </div>
-                  <div className="agent-roster-strip" role="list" aria-label="Selected agents">
-                    {selectedAgentCards.map((entry) => (
-                      <div key={entry.persona.id} className="agent-roster-chip" role="listitem">
-                        <span className="agent-roster-order">#{entry.order}</span>
+                  <div className="agent-roster-strip" role="list" aria-label="All agents">
+                    {agentCards.map((entry) => (
+                      <div
+                        key={entry.persona.id}
+                        className="agent-roster-chip"
+                        role="listitem"
+                        style={agentAccentStyle(entry.order, entry.selected)}
+                      >
+                        <span className="agent-roster-order">{entry.selected ? `#${entry.order}` : "Idle"}</span>
                         <div>
                           <strong>{entry.persona.name}</strong>
                           <p>{entry.wingLabel}</p>
@@ -1822,10 +1946,10 @@ export default function HomePage() {
                 <div className="agent-results">
                   <div className="section-head inline">
                     <h3>Individual agent results</h3>
-                    <span className="status-pill">{selectedAgentCards.length} agents</span>
+                    <span className="status-pill">{agentCards.length} agents</span>
                   </div>
                   <div className="agent-results-grid">
-                    {selectedAgentCards.map((entry) => (
+                    {agentCards.map((entry) => (
                       <AgentResultCard
                         key={entry.persona.id}
                         persona={entry.persona}
@@ -1841,39 +1965,34 @@ export default function HomePage() {
                 {result ? (
                   <div className="score-grid">
                     <ScoreCard
-                      label="Confusion"
-                      value={result.scores.confusion}
-                      description="Misunderstanding the page or the next step."
-                      active={focusMetric === "confusion"}
+                      label="Selected agents"
+                      value={selectedAgentSummary.length}
+                      description="These agents are active in this run."
                     />
                     <ScoreCard
-                      label="Trust risk"
-                      value={result.scores.trustRisk}
-                      description="Billing, confirmation, policy, or credibility signals that create doubt."
-                      active={focusMetric === "trust"}
+                      label="UX findings"
+                      value={result.wings.ux.findings.length}
+                      description="Friction, clarity, and usability issues."
                     />
                     <ScoreCard
-                      label="Abandonment"
-                      value={result.scores.abandonment}
-                      description="Users bailing because the flow feels too demanding or unclear."
+                      label="Red-team findings"
+                      value={result.wings.redTeam.findings.length}
+                      description="Abuse, bypass, and repeated-action risks."
                     />
                     <ScoreCard
-                      label="Exploitability"
-                      value={result.scores.exploitability}
-                      description="Abuse paths, weak boundaries, or loophole-prone language."
-                      active={focusMetric === "abuse"}
+                      label="Strongest wing"
+                      value={Math.max(result.wings.ux.findings.length, result.wings.redTeam.findings.length)}
+                      description="The lane with the heavier signal this pass."
                     />
                     <ScoreCard
-                      label="Cognitive load"
-                      value={result.scores.visualOverload}
-                      description="The number of simultaneous choices and how crowded the layout feels."
-                      active={focusMetric === "confusion"}
+                      label="Composite risk"
+                      value={Math.max(result.scores.abandonment, result.scores.exploitability)}
+                      description="Overall pressure from the two wings combined."
                     />
                     <ScoreCard
-                      label="Accessibility friction"
-                      value={result.scores.accessibilityFriction}
-                      description="Keyboard, focus, contrast, and high-load navigation risks."
-                      active={focusMetric === "accessibility"}
+                      label="Coverage strength"
+                      value={Math.max(result.pageFacts.buttonCount + result.pageFacts.inputCount, result.pageFacts.headingCount)}
+                      description="Signals available for the supervisor to inspect."
                     />
                   </div>
                 ) : null}
@@ -1896,7 +2015,7 @@ export default function HomePage() {
                         <span
                           key={`${finding.persona}-${index}`}
                           className={`hotspot severity-${finding.severity}`}
-                          title={`${finding.persona}: ${finding.theme}`}
+                          title={`${finding.persona}: ${simplifyFindingTheme(finding.theme)}`}
                           style={
                             {
                               left: `${finding.x}%`,
@@ -1906,7 +2025,7 @@ export default function HomePage() {
                           }
                         >
                           <b>{resolveSelectedOrder(selectedPersonas, selectedOrderMap, finding.persona) || index + 1}</b>
-                          <em>{finding.theme}</em>
+                          <em>{simplifyFindingTheme(finding.theme)}</em>
                         </span>
                       ))}
                     </>
@@ -1975,8 +2094,7 @@ export default function HomePage() {
                   ) : (
                     <div className="empty-findings">
                       <p>
-                        No findings yet. Select personas, tune the dials, and run a simulation to surface
-                        confusion, trust collapse, overload, and defensive abuse signals.
+                        No findings yet. Select personas and run a simulation to surface wing-specific risks.
                       </p>
                     </div>
                   )}
@@ -2094,6 +2212,7 @@ export default function HomePage() {
         onChange={setEditingDraft}
         onSave={savePersonaEdits}
         onDiscard={discardPersonaEdits}
+        error={editingError}
       />
       <ClonePersonaModal
         persona={cloningPersona}

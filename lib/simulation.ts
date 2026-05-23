@@ -143,18 +143,47 @@ function normalizeEmotion(value: unknown): SimulationFinding["emotion"] {
   return "confused";
 }
 
+function simplifyThemeLabel(value: string) {
+  const text = value.toLowerCase();
+  if (/validation|bypass|input|form|submit/.test(text)) return "Form bypass";
+  if (/payment|billing|charge|subscription|price|cost|financial/.test(text)) return "Hidden cost";
+  if (/policy|audit|authorization|permission|access|control|role/.test(text)) return "Access loophole";
+  if (/keyboard|focus|contrast|aria|screen reader|accessibility/.test(text)) return "Accessibility issue";
+  if (/trust|confidence|skeptical|mistrust/.test(text)) return "Trust issue";
+  if (/density|clutter|crowded|overload|competing|hierarchy/.test(text)) return "Too much on screen";
+  if (/button|repeat|retry|double|loading|race|duplicate/.test(text)) return "Repeated action risk";
+  if (/refund|support|cancel|renewal|policy/.test(text)) return "Policy gap";
+  return value.replace(/\s+/g, " ").trim().replace(/\b\w/g, (char) => char.toUpperCase()).slice(0, 40);
+}
+
+function simplifyFindingText(value: unknown, theme: string, fallback: string) {
+  const text = cleanText(value, fallback);
+  const trimmed = text.split(/[.!?]/)[0].replace(/\s+/g, " ").trim();
+  if (!trimmed.length) return fallback;
+  const lower = `${theme} ${trimmed}`.toLowerCase();
+  if (/hidden cost/.test(lower)) return trimmed.replace(/audit-log validation dependency loophole/gi, "The cost or policy step is unclear");
+  if (/form bypass/.test(lower)) return trimmed.replace(/client-side validation bypass/gi, "The form check can be bypassed");
+  if (/access loophole/.test(lower)) return trimmed.replace(/audit-log validation dependency loophole/gi, "The access or policy rule is too loose");
+  if (/too much on screen/.test(lower)) return trimmed.replace(/visual hierarchy/gi, "the layout hierarchy");
+  if (/trust issue/.test(lower)) return trimmed.replace(/trust/gi, "trust");
+  return trimmed.length > 132 ? `${trimmed.slice(0, 131).trim()}…` : trimmed;
+}
+
 function normalizeFinding(finding: Partial<SimulationFinding>, index: number): SimulationFinding {
+  const theme = simplifyThemeLabel(cleanText(finding.theme, "Behavioral risk"));
   return {
     persona: cleanText(finding.persona, `Synthetic persona ${index + 1}`),
     severity: normalizeSeverity(finding.severity),
-    theme: cleanText(finding.theme, "Behavioral risk"),
-    evidence: cleanText(
+    theme,
+    evidence: simplifyFindingText(
       finding.evidence,
-      "The page contains a behavioral signal that may reduce comprehension, trust, or completion."
+      theme,
+      "The page may make the next step harder than it should be."
     ),
-    recommendation: cleanText(
+    recommendation: simplifyFindingText(
       finding.recommendation,
-      "Clarify the primary action, reduce ambiguity, and simplify the decision point."
+      theme,
+      "Clarify the next step and reduce the friction."
     ),
     x: coordinateToPercent(finding.x, 35 + index * 7),
     y: coordinateToPercent(finding.y, 38 + index * 5),
@@ -698,7 +727,7 @@ async function modelFindings({
       {
         role: "system",
         content:
-          "You are Probelayer, a behavioral failure simulation engine. Return valid JSON only. Identify UX, trust, accessibility, overload, and defensive abuse risks from a screenshot and extracted DOM facts."
+          "You are Probelayer, a behavioral failure simulation engine. Return valid JSON only. Use short plain-language titles. Keep each evidence and recommendation to one short sentence. Identify UX, trust, accessibility, overload, and defensive abuse risks from a screenshot and extracted DOM facts."
       },
       {
         role: "user",
@@ -730,10 +759,10 @@ async function modelFindings({
                         ? "Defensive abuse checks with careful, non-destructive probing."
                         : "UX observation and friction analysis."
               })),
-              pageFacts: facts,
-              schema: {
-                summary: "string",
-                findings: [
+                pageFacts: facts,
+                schema: {
+                  summary: "string",
+                  findings: [
                   {
                     persona: "string",
                     severity: "low|medium|high",
@@ -749,6 +778,8 @@ async function modelFindings({
               rules: [
                 "Return exactly one JSON object with summary and findings.",
                 "Return 4 to 10 findings.",
+                "Keep theme labels short and clear.",
+                "Keep evidence and recommendation simple and direct.",
                 "Use numeric x and y percentages, not words.",
                 "Use only the allowed severity and emotion enum values.",
                 "Prefer concrete, actionable evidence and recommendations.",

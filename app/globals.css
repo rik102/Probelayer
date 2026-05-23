@@ -534,6 +534,7 @@ button:active,
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 18px;
 }
 
 .workspace-tabs {
@@ -556,10 +557,16 @@ button:active,
   cursor: pointer;
 }
 
-.coverage-chip.is-selected {
-  border-color: rgba(200, 255, 110, 0.22);
-  background: rgba(200, 255, 110, 0.08);
-  color: rgba(244, 246, 251, 0.96);
+.coverage-chip.is-static {
+  cursor: default;
+}
+
+summary {
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
 }
 
 .wing-summary-grid {
@@ -782,7 +789,9 @@ button:active,
 .persona-card {
   border: 1px solid var(--line);
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.035);
+  background:
+    radial-gradient(circle at top left, hsl(var(--agent-hue) 90% 62% / 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.035);
   text-align: left;
   padding: 18px;
   cursor: pointer;
@@ -797,13 +806,16 @@ button:active,
 }
 
 .persona-card.is-idle {
-  opacity: 0.68;
-  border-color: rgba(255, 255, 255, 0.06);
+  opacity: 0.54;
+  border-color: rgba(255, 255, 255, 0.05);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.04), transparent 28%),
+    rgba(255, 255, 255, 0.02);
 }
 
 .persona-card:hover {
   transform: translateY(-2px);
-  opacity: 0.92;
+  opacity: 0.98;
 }
 
 .persona-card:hover .persona-pill,
@@ -812,13 +824,13 @@ button:active,
 }
 
 .persona-card.is-selected {
-  border-color: rgba(200, 255, 110, 0.42);
+  border-color: hsl(var(--agent-hue) 90% 58% / 0.48);
   background:
-    linear-gradient(180deg, rgba(200, 255, 110, 0.14), rgba(255, 255, 255, 0.06)),
+    linear-gradient(180deg, hsl(var(--agent-hue) 90% 60% / 0.16), rgba(255, 255, 255, 0.06)),
     rgba(255, 255, 255, 0.045);
   box-shadow:
-    0 0 0 1px rgba(200, 255, 110, 0.14),
-    0 18px 40px rgba(200, 255, 110, 0.06);
+    0 0 0 1px hsl(var(--agent-hue) 90% 60% / 0.18),
+    0 18px 40px hsl(var(--agent-hue) 90% 50% / 0.12);
   opacity: 1;
 }
 
@@ -846,8 +858,8 @@ button:active,
 }
 
 .persona-pill.is-selected {
-  border-color: rgba(200, 255, 110, 0.42);
-  background: rgba(200, 255, 110, 0.16);
+  border-color: hsl(var(--agent-hue) 90% 60% / 0.45);
+  background: hsl(var(--agent-hue) 90% 60% / 0.18);
   color: rgba(244, 246, 251, 0.98);
 }
 
@@ -1137,6 +1149,23 @@ button:active,
   gap: 12px;
 }
 
+.finding-card {
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 12px;
+}
+
+.finding-card summary.finding-head {
+  cursor: pointer;
+}
+
+.finding-card[open] {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .agent-roster {
   display: grid;
   gap: 14px;
@@ -1156,7 +1185,9 @@ button:active,
   padding: 14px 16px;
   border-radius: 20px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background:
+    radial-gradient(circle at left center, hsl(var(--agent-hue) 90% 58% / 0.16), transparent 28%),
+    rgba(255, 255, 255, 0.03);
 }
 
 .agent-roster-chip strong,
@@ -1181,8 +1212,8 @@ button:active,
   display: grid;
   place-items: center;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid hsl(var(--agent-hue) 90% 60% / 0.28);
+  background: hsl(var(--agent-hue) 90% 60% / 0.16);
   color: var(--text);
   font-size: 0.78rem;
   font-weight: 700;
@@ -1201,8 +1232,8 @@ button:active,
 }
 
 .agent-roster-state.is-selected {
-  border-color: rgba(200, 255, 110, 0.3);
-  background: rgba(200, 255, 110, 0.14);
+  border-color: hsl(var(--agent-hue) 90% 60% / 0.45);
+  background: hsl(var(--agent-hue) 90% 60% / 0.18);
   color: rgba(244, 246, 251, 0.98);
 }
 
@@ -1228,7 +1259,9 @@ button:active,
   padding: 16px;
   border-radius: 22px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background:
+    radial-gradient(circle at top left, hsl(var(--agent-hue) 90% 62% / 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.03);
   display: grid;
   gap: 10px;
   transition:
@@ -1239,14 +1272,17 @@ button:active,
 }
 
 .agent-result-card.is-selected {
-  border-color: rgba(200, 255, 110, 0.34);
+  border-color: hsl(var(--agent-hue) 90% 58% / 0.46);
   background:
-    linear-gradient(180deg, rgba(200, 255, 110, 0.08), rgba(255, 255, 255, 0.045)),
+    linear-gradient(180deg, hsl(var(--agent-hue) 90% 60% / 0.14), rgba(255, 255, 255, 0.045)),
     rgba(255, 255, 255, 0.03);
+  box-shadow:
+    0 0 0 1px hsl(var(--agent-hue) 90% 60% / 0.14),
+    0 18px 44px hsl(var(--agent-hue) 90% 50% / 0.1);
 }
 
 .agent-result-card.is-idle {
-  opacity: 0.72;
+  opacity: 0.56;
 }
 
 .agent-result-top {
@@ -1254,6 +1290,10 @@ button:active,
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.agent-result-card summary.agent-result-top {
+  cursor: pointer;
 }
 
 .agent-result-top strong {
@@ -1266,6 +1306,36 @@ button:active,
   margin: 4px 0 0;
   color: var(--muted-2);
   font-size: 0.82rem;
+}
+
+.agent-result-summary-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-result-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.agent-result-state.is-selected {
+  border-color: hsl(var(--agent-hue) 90% 60% / 0.45);
+  background: hsl(var(--agent-hue) 90% 60% / 0.18);
+  color: rgba(244, 246, 251, 0.98);
+}
+
+.agent-result-state.is-idle {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(244, 246, 251, 0.6);
 }
 
 .agent-result-order {
@@ -1307,6 +1377,47 @@ button:active,
   flex-wrap: wrap;
   color: var(--muted-2);
   font-size: 0.76rem;
+}
+
+.agent-result-findings {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-finding-row {
+  padding: 12px 13px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 6px;
+}
+
+.agent-finding-row strong {
+  font-size: 0.94rem;
+  letter-spacing: -0.02em;
+}
+
+.agent-finding-row p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.agent-finding-row.severity-high {
+  border-color: rgba(255, 108, 87, 0.2);
+}
+
+.agent-finding-row.severity-medium {
+  border-color: rgba(255, 219, 108, 0.18);
+}
+
+.agent-finding-row.severity-low {
+  border-color: rgba(143, 214, 255, 0.18);
+}
+
+.agent-finding-row.muted {
+  opacity: 0.85;
 }
 
 .running-supervisor {
@@ -1408,6 +1519,46 @@ button:active,
   line-height: 1.6;
 }
 
+.loading-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.loading-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted-2);
+  font-size: 0.78rem;
+}
+
+.loading-track {
+  height: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.loading-track span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, hsl(92 98% 66%), hsl(198 88% 70%), hsl(280 78% 68%));
+  animation: loadingSweep 1.8s ease-in-out infinite;
+}
+
+.loading-track:nth-child(3) span {
+  animation-delay: 0.18s;
+}
+
+.loading-track:nth-child(4) span {
+  animation-delay: 0.36s;
+}
+
 .clone-preview {
   display: grid;
   gap: 8px;
@@ -1430,6 +1581,12 @@ button:active,
   color: rgba(244, 246, 251, 0.96);
 }
 
+.field-hint {
+  color: var(--muted-2);
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
 @keyframes pulseDot {
   0%,
   100% {
@@ -1439,6 +1596,20 @@ button:active,
   50% {
     transform: scale(1);
     opacity: 1;
+  }
+}
+
+@keyframes loadingSweep {
+  0% {
+    transform: translateX(-68%);
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(180%);
+    opacity: 0.5;
   }
 }
 
@@ -1491,6 +1662,12 @@ button:active,
   margin: 4px 0 0;
   color: var(--muted-2);
   line-height: 1.5;
+}
+
+.finding-body {
+  display: grid;
+  gap: 10px;
+  padding-left: 42px;
 }
 
 .severity-pill {
