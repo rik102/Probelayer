@@ -4,8 +4,14 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import ScrollTrigger from "gsap/ScrollTrigger";
-import { defaultPersonas, type Persona, type PersonaInput, normalizePersona } from "@/lib/personas";
-import type { AnalysisScenario, DialSettings, SimulationFinding, SimulationResult } from "@/lib/simulation";
+import { defaultPersonas, stressPersonas, type Persona, type PersonaInput, normalizePersona } from "@/lib/personas";
+import {
+  type AnalysisScenario,
+  type DialSettings,
+  type PentestLevel,
+} from "@/lib/simulation";
+import { suggestPersonaPack, type PersonaSuggestion } from "@/lib/persona-assistant";
+import type { SupervisorFinding, SupervisorResult } from "@/lib/supervisor";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -30,6 +36,46 @@ const defaultCustomDraft = {
 };
 
 type CustomDraft = typeof defaultCustomDraft;
+type FocusMetric = "confusion" | "trust" | "accessibility" | "abuse";
+type WorkspaceTab = "dashboard" | "github" | "assistant";
+type GitHubRepoSummary = {
+  id: number;
+  name: string;
+  fullName: string;
+  private: boolean;
+  htmlUrl: string;
+  description: string | null;
+  defaultBranch: string;
+  updatedAt: string;
+};
+type SupervisorFindingCard = SupervisorFinding & {
+  wingLabel: string;
+};
+
+const focusConfig: Record<
+  FocusMetric,
+  {
+    label: string;
+    description: string;
+  }
+> = {
+  confusion: {
+    label: "Confusion",
+    description: "Clarify the primary path, reduce ambiguity, and make the next step obvious."
+  },
+  trust: {
+    label: "Trust",
+    description: "Surface pricing, permissions, policy language, and anything that makes users hesitate."
+  },
+  accessibility: {
+    label: "Accessibility",
+    description: "Check keyboard flow, focus order, contrast, and high-load navigation friction."
+  },
+  abuse: {
+    label: "Abuse",
+    description: "Probe repeated submits, bypasses, policy loopholes, and unsafe action paths."
+  }
+};
 
 function resolveTargetUrl(value: string) {
   return new URL(value, window.location.origin).toString();
@@ -37,6 +83,10 @@ function resolveTargetUrl(value: string) {
 
 function joinTags(tags: string[]) {
   return tags.length ? tags.join(" · ") : "custom";
+}
+
+function mergePersona(base: Persona | PersonaInput, override?: PersonaInput, index = 0) {
+  return normalizePersona({ ...base, ...override, id: base.id }, index);
 }
 
 function arrayToggle(values: string[], value: string) {
@@ -69,50 +119,124 @@ function buildPersonaInput(persona: Persona | PersonaInput): PersonaInput {
   };
 }
 
-function DialControl({
-  label,
-  value,
-  onChange,
-  min = 1,
-  max = 10,
-  hint
+function CoverageCard({
+  uxSelectedCount,
+  redTeamSelectedCount,
+  customCount,
+  scenario,
+  modelReady,
+  redTeamLevel,
+  activeWorkspace,
+  supervisorState,
+  focusMetric,
+  onSelectFocus,
+  onSelectWorkspace
 }: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max?: number;
-  hint: string;
+  uxSelectedCount: number;
+  redTeamSelectedCount: number;
+  customCount: number;
+  scenario: AnalysisScenario;
+  modelReady: boolean;
+  redTeamLevel: PentestLevel;
+  activeWorkspace: WorkspaceTab;
+  supervisorState: string;
+  focusMetric: FocusMetric;
+  onSelectFocus: (metric: FocusMetric) => void;
+  onSelectWorkspace: (workspace: WorkspaceTab) => void;
 }) {
+  const focus = focusConfig[focusMetric];
   return (
-    <label className="dial-control">
-      <div className="dial-head">
-        <span>{label}</span>
-        <strong>{value}/10</strong>
+    <div className="card-core hero-panel-core coverage-panel">
+      <div className="coverage-panel-top">
+        <p className="eyebrow">Central supervisor</p>
+        <span className="status-pill">{modelReady ? "Model ready" : "Demo ready"}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-      <p>{hint}</p>
-    </label>
+      <div className="workspace-tabs" role="tablist" aria-label="Workspace navigation">
+        {[
+          { key: "dashboard", label: "Dashboard" },
+          { key: "github", label: "GitHub" },
+          { key: "assistant", label: "Assistant" }
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeWorkspace === tab.key}
+            className={`workspace-tab ${activeWorkspace === tab.key ? "is-selected" : ""}`}
+            onClick={() => onSelectWorkspace(tab.key as WorkspaceTab)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="coverage-panel-copy">
+        <h2>Two wings, one supervisor, compact enough for the top fold.</h2>
+        <p>
+          The dashboard runs UX and red-team lanes in parallel, then merges them into one readable report
+          without losing attribution.
+        </p>
+        <p className="coverage-focus-copy">{supervisorState}</p>
+        <p className="coverage-focus-copy">{focus.description}</p>
+      </div>
+      <div className="coverage-grid">
+        <div>
+          <span>UX personas</span>
+          <strong>{uxSelectedCount}</strong>
+        </div>
+        <div>
+          <span>Red-team personas</span>
+          <strong>{redTeamSelectedCount}</strong>
+        </div>
+        <div>
+          <span>Red-team depth</span>
+          <strong>{redTeamLevel}</strong>
+        </div>
+        <div>
+          <span>Custom personas</span>
+          <strong>{customCount}</strong>
+        </div>
+        <div>
+          <span>Run mode</span>
+          <strong>{scenario}</strong>
+        </div>
+        <div>
+          <span>Model route</span>
+          <strong>{modelReady ? "Active" : "Ready"}</strong>
+        </div>
+      </div>
+      <div className="coverage-ribbon" role="toolbar" aria-label="Focus metrics">
+        {Object.entries(focusConfig).map(([key, entry]) => (
+          <button
+            key={key}
+            type="button"
+            className={`coverage-chip ${focusMetric === key ? "is-selected" : ""}`}
+            onClick={() => onSelectFocus(key as FocusMetric)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
 function ScoreCard({
   label,
   value,
-  description
+  description,
+  active
 }: {
   label: string;
   value: number;
   description: string;
+  active?: boolean;
 }) {
+  const scoreHue = `${Math.max(0, 120 - value * 1.2)}deg`;
   return (
-    <article className="score-card">
+    <article
+      className={`score-card ${active ? "is-focused" : ""}`}
+      style={{ "--score-hue": scoreHue } as CSSProperties}
+    >
       <div className="score-card-top">
         <span>{label}</span>
         <strong>{value}</strong>
@@ -125,7 +249,7 @@ function ScoreCard({
   );
 }
 
-function FindingCard({ finding, index }: { finding: SimulationFinding; index: number }) {
+function FindingCard({ finding, index }: { finding: SupervisorFindingCard; index: number }) {
   return (
     <article className={`finding-card severity-${finding.severity}`}>
       <div className="finding-head">
@@ -133,7 +257,7 @@ function FindingCard({ finding, index }: { finding: SimulationFinding; index: nu
         <div>
           <h3>{finding.theme}</h3>
           <p>
-            {finding.persona} felt {finding.emotion}.
+            {finding.persona} felt {finding.emotion}. {finding.wingLabel}
           </p>
         </div>
         <span className="severity-pill">{finding.severity}</span>
@@ -150,6 +274,7 @@ function PersonaCard({
   persona,
   selected,
   onToggle,
+  onEdit,
   onClone,
   onRemove,
   isCustom
@@ -157,6 +282,7 @@ function PersonaCard({
   persona: Persona;
   selected: boolean;
   onToggle: () => void;
+  onEdit?: () => void;
   onClone?: () => void;
   onRemove?: () => void;
   isCustom: boolean;
@@ -180,6 +306,18 @@ function PersonaCard({
         <span>Trust {persona.trust}</span>
       </div>
       <div className="persona-actions">
+        {onEdit ? (
+          <span
+            className="persona-link"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
+            Edit
+          </span>
+        ) : null}
         {onClone ? (
           <span
             className="persona-link"
@@ -209,35 +347,518 @@ function PersonaCard({
   );
 }
 
+function PersonaEditorModal({
+  persona,
+  draft,
+  onChange,
+  onSave,
+  onDiscard
+}: {
+  persona: Persona | null;
+  draft: PersonaInput | null;
+  onChange: (draft: PersonaInput) => void;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!persona) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDiscard();
+    };
+
+    document.addEventListener("keydown", keyHandler);
+
+    if (panelRef.current) {
+      gsap.fromTo(
+        panelRef.current,
+        { y: 24, opacity: 0, scale: 0.98, filter: "blur(12px)" },
+        { y: 0, opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.32, ease: "power3.out" }
+      );
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [persona]);
+
+  if (!persona || !draft) return null;
+
+  return (
+    <div className="persona-modal-backdrop" onMouseDown={onDiscard} role="presentation">
+      <div
+        className="persona-modal-panel"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="persona-modal-title"
+        aria-describedby="persona-modal-description"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="persona-modal-head">
+          <div>
+            <p className="eyebrow">Edit persona</p>
+            <h3 id="persona-modal-title">{persona.name}</h3>
+            <p id="persona-modal-description">
+              Update the draft, then save or discard without touching the live persona until you commit.
+            </p>
+          </div>
+          <div className="persona-modal-id">
+            <span>ID</span>
+            <strong>{persona.id}</strong>
+          </div>
+        </div>
+
+        <div className="persona-modal-grid">
+          <label className="field">
+            <span>Name</span>
+            <input value={draft.name ?? ""} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Behavioral lens</span>
+            <input value={draft.lens ?? ""} onChange={(event) => onChange({ ...draft, lens: event.target.value })} />
+          </label>
+          <label className="field wide">
+            <span>Primary goal</span>
+            <input value={draft.goal ?? ""} onChange={(event) => onChange({ ...draft, goal: event.target.value })} />
+          </label>
+          <label className="field wide">
+            <span>Risk biases</span>
+            <input
+              value={draft.riskBias ?? ""}
+              onChange={(event) => onChange({ ...draft, riskBias: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Patience</span>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={draft.patience ?? 45}
+              onChange={(event) => onChange({ ...draft, patience: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field">
+            <span>Trust</span>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={draft.trust ?? 50}
+              onChange={(event) => onChange({ ...draft, trust: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field wide">
+            <span>Accessibility needs</span>
+            <input
+              value={draft.accessibility ?? ""}
+              onChange={(event) => onChange({ ...draft, accessibility: event.target.value })}
+            />
+          </label>
+          <label className="field">
+            <span>Tone</span>
+            <input value={draft.tone ?? ""} onChange={(event) => onChange({ ...draft, tone: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Tags</span>
+            <input
+              value={Array.isArray(draft.tags) ? draft.tags.join(", ") : ""}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  tags: event.target.value
+                    .split(",")
+                    .map((tag) => tag.trim())
+                    .filter(Boolean)
+                })
+              }
+            />
+          </label>
+        </div>
+
+        <label className="checkbox-row modal-checkbox">
+          <input
+            type="checkbox"
+            checked={Boolean(draft.penTest)}
+            onChange={(event) => onChange({ ...draft, penTest: event.target.checked })}
+          />
+          <span>Pen-test persona</span>
+        </label>
+
+        <div className="modal-actions">
+          <button className="button-secondary" type="button" onClick={onDiscard}>
+            Discard changes
+          </button>
+          <button className="button-primary" type="button" onClick={onSave}>
+            Save changes
+            <span>→</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WingSummaryCard({
+  wing,
+  activeMetric,
+  title
+}: {
+  wing: SupervisorResult["wings"]["ux"];
+  activeMetric: FocusMetric;
+  title: string;
+}) {
+  const score = wing.scores;
+  const accentLabel =
+    activeMetric === "confusion"
+      ? "Confusion"
+      : activeMetric === "trust"
+        ? "Trust"
+        : activeMetric === "accessibility"
+          ? "Accessibility"
+          : "Abuse";
+
+  return (
+    <article className={`wing-summary wing-${wing.wing}`}>
+      <div className="wing-summary-top">
+        <div>
+          <p className="eyebrow">{title}</p>
+          <h3>{wing.title}</h3>
+          <p>{wing.durationHint}</p>
+        </div>
+        <span className="status-pill">{wing.analysisMode}</span>
+      </div>
+      <div className="wing-summary-grid">
+        <div>
+          <span>Persona count</span>
+          <strong>{wing.personaCount}</strong>
+        </div>
+        <div>
+          <span>Findings</span>
+          <strong>{wing.findings.length}</strong>
+        </div>
+        <div>
+          <span>Accent</span>
+          <strong>{accentLabel}</strong>
+        </div>
+        <div>
+          <span>Depth</span>
+          <strong>{wing.pentestLevel ?? "Standard"}</strong>
+        </div>
+      </div>
+      <div className="wing-score-row">
+        <span>Confusion {score.confusion}</span>
+        <span>Trust {score.trustRisk}</span>
+        <span>Exploit {score.exploitability}</span>
+      </div>
+    </article>
+  );
+}
+
+function GitHubLanePanel({
+  githubToken,
+  setGithubToken,
+  githubRepos,
+  githubLoading,
+  githubError,
+  selectedRepo,
+  setSelectedRepo,
+  githubBranch,
+  setGithubBranch,
+  loadGitHubRepos,
+  saveGitHubConnection,
+  setActiveWorkspace
+}: {
+  githubToken: string;
+  setGithubToken: (value: string) => void;
+  githubRepos: GitHubRepoSummary[];
+  githubLoading: boolean;
+  githubError: string;
+  selectedRepo: GitHubRepoSummary | null;
+  setSelectedRepo: (repo: GitHubRepoSummary | null) => void;
+  githubBranch: string;
+  setGithubBranch: (value: string) => void;
+  loadGitHubRepos: () => void;
+  saveGitHubConnection: () => void;
+  setActiveWorkspace: (workspace: WorkspaceTab) => void;
+}) {
+  return (
+    <section className="floating-card card-shell reveal">
+      <div className="card-core">
+        <p className="eyebrow">GitHub lane</p>
+        <div className="section-head inline">
+          <h2>Connect a repository for CI/CD runs later</h2>
+          <span className="status-pill">{selectedRepo ? "Repo connected" : "Token required"}</span>
+        </div>
+        <p className="section-copy">
+          The dashboard can list your repositories server-side with a GitHub token, then keep the chosen
+          repo and branch ready for push or PR automation when you are ready to wire it up.
+        </p>
+
+        <div className="custom-form github-form">
+          <label className="field wide">
+            <span>GitHub token</span>
+            <input
+              value={githubToken}
+              onChange={(event) => setGithubToken(event.target.value)}
+              placeholder="ghp_..."
+            />
+          </label>
+          <label className="field">
+            <span>Branch</span>
+            <input value={githubBranch} onChange={(event) => setGithubBranch(event.target.value)} />
+          </label>
+          <label className="field">
+            <span>Lane</span>
+            <input value="CI/CD ready" readOnly />
+          </label>
+        </div>
+
+        <div className="stack-actions">
+          <button className="button-primary" type="button" onClick={loadGitHubRepos} disabled={githubLoading}>
+            {githubLoading ? "Loading repos..." : "Load repositories"}
+            <span>→</span>
+          </button>
+          <button className="button-secondary" type="button" onClick={saveGitHubConnection} disabled={!selectedRepo}>
+            Save connection
+          </button>
+          <button className="button-secondary" type="button" onClick={() => setActiveWorkspace("dashboard")}>
+            Back to dashboard
+          </button>
+        </div>
+
+        {githubError ? <p className="error-banner">{githubError}</p> : null}
+
+        <div className="repo-grid">
+          {githubRepos.length ? (
+            githubRepos.map((repo) => (
+              <button
+                key={repo.id}
+                type="button"
+                className={`repo-card ${selectedRepo?.id === repo.id ? "is-selected" : ""}`}
+                onClick={() => setSelectedRepo(repo)}
+              >
+                <div className="repo-card-top">
+                  <strong>{repo.fullName}</strong>
+                  <span>{repo.private ? "Private" : "Public"}</span>
+                </div>
+                <p>{repo.description || "No description"}</p>
+                <div className="repo-card-meta">
+                  <span>Default branch {repo.defaultBranch}</span>
+                  <span>Updated {new Date(repo.updatedAt).toLocaleDateString()}</span>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="empty-findings persona-empty">
+              <p>Load repositories with your GitHub token to choose the first CI/CD target.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PersonaAssistantPanel({
+  personaPrompt,
+  setPersonaPrompt,
+  personaSuggestions,
+  personaSuggestionError,
+  generatePersonaSuggestions,
+  acceptSuggestion,
+  acceptAllSuggestions,
+  discardSuggestion,
+  setActiveWorkspace
+}: {
+  personaPrompt: string;
+  setPersonaPrompt: (value: string) => void;
+  personaSuggestions: PersonaSuggestion[];
+  personaSuggestionError: string;
+  generatePersonaSuggestions: () => void;
+  acceptSuggestion: (suggestion: PersonaSuggestion) => void;
+  acceptAllSuggestions: () => void;
+  discardSuggestion: (id: string) => void;
+  setActiveWorkspace: (workspace: WorkspaceTab) => void;
+}) {
+  return (
+    <section className="floating-card card-shell reveal">
+      <div className="card-core">
+        <p className="eyebrow">Persona assistant</p>
+        <div className="section-head inline">
+          <h2>Describe the product and get suggested personas</h2>
+          <span className="status-pill">{personaSuggestions.length ? `${personaSuggestions.length} suggestions` : "Heuristic ready"}</span>
+        </div>
+        <p className="section-copy">
+          This is the future persona pack assistant: describe the flow, review suggested personas, then accept,
+          edit, save, or discard them.
+        </p>
+
+        <label className="field wide">
+          <span>Project description</span>
+          <textarea
+            className="text-area"
+            value={personaPrompt}
+            onChange={(event) => setPersonaPrompt(event.target.value)}
+            placeholder="Example: A B2B billing portal with checkout, admin settings, and mobile onboarding."
+            rows={5}
+          />
+        </label>
+
+        <div className="stack-actions">
+          <button className="button-primary" type="button" onClick={generatePersonaSuggestions}>
+            Suggest personas
+            <span>→</span>
+          </button>
+          <button className="button-secondary" type="button" onClick={acceptAllSuggestions} disabled={!personaSuggestions.length}>
+            Accept all
+          </button>
+          <button className="button-secondary" type="button" onClick={() => setActiveWorkspace("dashboard")}>
+            Back to dashboard
+          </button>
+        </div>
+
+        {personaSuggestionError ? <p className="error-banner">{personaSuggestionError}</p> : null}
+
+        <div className="suggestion-grid">
+          {personaSuggestions.length ? (
+            personaSuggestions.map((suggestion) => {
+              const suggestionId = suggestion.id ?? makePersonaId(suggestion.name ?? "Suggested persona");
+              return (
+              <article key={suggestionId} className="suggestion-card">
+                <div className="suggestion-card-top">
+                  <div>
+                    <strong>{suggestion.name}</strong>
+                    <p>{suggestion.reason}</p>
+                  </div>
+                  <span className="severity-pill">{suggestion.penTest ? "Red team" : "UX"}</span>
+                </div>
+                <p>{suggestion.lens}</p>
+                <div className="persona-meta persona-meta-values">
+                  <span>Patience {suggestion.patience}</span>
+                  <span>Trust {suggestion.trust}</span>
+                </div>
+                <div className="persona-actions">
+                  <span className="persona-link" onClick={() => acceptSuggestion({ ...suggestion, id: suggestionId })}>
+                    Accept
+                  </span>
+                  <span className="persona-link danger" onClick={() => discardSuggestion(suggestionId)}>
+                    Discard
+                  </span>
+                </div>
+              </article>
+              );
+            })
+          ) : (
+            <div className="empty-findings persona-empty">
+              <p>Describe the product or flow to generate a tailored persona pack.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   const heroRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const [targetUrl, setTargetUrl] = useState("/demo-flow");
   const [scenario, setScenario] = useState<AnalysisScenario>("balanced");
   const [dialSettings, setDialSettings] = useState<DialSettings>(defaultDialSettings);
+  const [redTeamLevel, setRedTeamLevel] = useState<PentestLevel>("quick");
+  const [focusMetric, setFocusMetric] = useState<FocusMetric>("confusion");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("dashboard");
   const [customPersonas, setCustomPersonas] = useState<PersonaInput[]>([]);
+  const [personaOverrides, setPersonaOverrides] = useState<Record<string, PersonaInput>>({});
   const [selectedIds, setSelectedIds] = useState<string[]>(defaultPersonas.map((persona) => persona.id));
   const [draft, setDraft] = useState<CustomDraft>(defaultCustomDraft);
-  const [result, setResult] = useState<SimulationResult | null>(null);
+  const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
+  const [editingDraft, setEditingDraft] = useState<PersonaInput | null>(null);
+  const [result, setResult] = useState<SupervisorResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hydrateReady, setHydrateReady] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubRepos, setGithubRepos] = useState<GitHubRepoSummary[]>([]);
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubError, setGithubError] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepoSummary | null>(null);
+  const [githubBranch, setGithubBranch] = useState("main");
+  const [personaPrompt, setPersonaPrompt] = useState("");
+  const [personaSuggestions, setPersonaSuggestions] = useState<PersonaSuggestion[]>([]);
+  const [personaSuggestionError, setPersonaSuggestionError] = useState("");
 
-  const allPersonas = useMemo(() => {
-    return [
-      ...defaultPersonas,
-      ...customPersonas.map((persona, index) => normalizePersona(persona, index))
-    ];
-  }, [customPersonas]);
+  const baselinePersonas = useMemo(
+    () => defaultPersonas.map((persona) => mergePersona(persona, personaOverrides[persona.id])),
+    [personaOverrides]
+  );
+
+  const stressLibrary = useMemo(
+    () => stressPersonas.map((persona) => mergePersona(persona, personaOverrides[persona.id])),
+    [personaOverrides]
+  );
+
+  const customLibrary = useMemo(
+    () =>
+      customPersonas.map((persona, index) => {
+        const personaId = persona.id ?? makePersonaId(persona.name ?? `Custom persona ${index + 1}`);
+        return mergePersona({ ...persona, id: personaId }, personaOverrides[personaId], index);
+      }),
+    [customPersonas, personaOverrides]
+  );
+
+  const allPersonas = useMemo(
+    () => [...baselinePersonas, ...stressLibrary, ...customLibrary],
+    [baselinePersonas, customLibrary, stressLibrary]
+  );
+
+  const stressPersonaIds = useMemo(() => stressPersonas.map((persona) => persona.id), []);
 
   const selectedPersonas = useMemo(
     () => allPersonas.filter((persona) => selectedIds.includes(persona.id)),
     [allPersonas, selectedIds]
   );
 
+  const uxSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => !persona.penTest), [selectedPersonas]);
+  const redTeamSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => persona.penTest), [selectedPersonas]);
+
+  const supervisorSummary = useMemo(() => {
+    if (!result) {
+      return {
+        uxCount: uxSelectedPersonas.length || baselinePersonas.length,
+        redCount: redTeamSelectedPersonas.length || stressLibrary.length,
+        wingState: "Ready to run both wings" as const
+      };
+    }
+
+    return {
+      uxCount: result.wings.ux.personaCount,
+      redCount: result.wings.redTeam.personaCount,
+      wingState: `UX ${result.wings.ux.findings.length} · Red team ${result.wings.redTeam.findings.length}` as const
+    };
+  }, [baselinePersonas.length, redTeamSelectedPersonas.length, result, stressLibrary.length, uxSelectedPersonas.length]);
+
+  const supervisorFindings = useMemo(
+    () =>
+      result?.findings.map((finding) => ({
+        ...finding,
+        wingLabel: finding.wing === "ux" ? "UX Suite" : "Red Team Suite"
+      })) ?? [],
+    [result]
+  );
+
   useEffect(() => {
     const storedCustom = window.localStorage.getItem("probelayer-custom-personas");
     const storedSelected = window.localStorage.getItem("probelayer-selected-personas");
+    const storedOverrides = window.localStorage.getItem("probelayer-persona-overrides");
 
     if (storedCustom) {
       try {
@@ -259,6 +880,29 @@ export default function HomePage() {
       }
     }
 
+    if (storedOverrides) {
+      try {
+        const parsed = JSON.parse(storedOverrides) as Record<string, PersonaInput>;
+        setPersonaOverrides(parsed ?? {});
+      } catch {
+        window.localStorage.removeItem("probelayer-persona-overrides");
+      }
+    }
+
+    const storedGitHub = window.localStorage.getItem("probelayer-github-connection");
+    if (storedGitHub) {
+      try {
+        const parsed = JSON.parse(storedGitHub) as {
+          repo?: GitHubRepoSummary;
+          branch?: string;
+        };
+        if (parsed.repo) setSelectedRepo(parsed.repo);
+        if (parsed.branch) setGithubBranch(parsed.branch);
+      } catch {
+        window.localStorage.removeItem("probelayer-github-connection");
+      }
+    }
+
     setHydrateReady(true);
   }, []);
 
@@ -271,6 +915,16 @@ export default function HomePage() {
     if (!hydrateReady) return;
     window.localStorage.setItem("probelayer-selected-personas", JSON.stringify(selectedIds));
   }, [selectedIds, hydrateReady]);
+
+  useEffect(() => {
+    if (!hydrateReady) return;
+    window.localStorage.setItem("probelayer-persona-overrides", JSON.stringify(personaOverrides));
+  }, [personaOverrides, hydrateReady]);
+
+  useEffect(() => {
+    if (scenario !== "pen-test") return;
+    setSelectedIds((current) => Array.from(new Set([...current, ...stressPersonaIds])));
+  }, [scenario, stressPersonaIds]);
 
   useGSAP(
     () => {
@@ -336,7 +990,7 @@ export default function HomePage() {
     setError("");
 
     try {
-      const response = await fetch("/api/simulate", {
+      const response = await fetch("/api/supervisor", {
         method: "POST",
         headers: {
           "content-type": "application/json"
@@ -345,18 +999,94 @@ export default function HomePage() {
           targetUrl: resolveTargetUrl(targetUrl),
           scenario,
           personas: selectedPersonas.map((persona) => buildPersonaInput(persona)),
-          dialSettings
+          dialSettings,
+          redTeamLevel
         })
       });
 
-      const data = (await response.json()) as SimulationResult & { error?: string };
+      const data = (await response.json()) as SupervisorResult & { error?: string };
       if (!response.ok) throw new Error(data.error || "Simulation failed");
       setResult(data);
+      setActiveWorkspace("dashboard");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Simulation failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadGitHubRepos() {
+    setGithubLoading(true);
+    setGithubError("");
+
+    try {
+      const response = await fetch("/api/github/repos", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          token: githubToken,
+          visibility: "all"
+        })
+      });
+
+      const data = (await response.json()) as { repos?: GitHubRepoSummary[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Failed to load repositories");
+      setGithubRepos(data.repos ?? []);
+      if (data.repos?.length && !selectedRepo) {
+        setSelectedRepo(data.repos[0]);
+        setGithubBranch(data.repos[0].defaultBranch || "main");
+      }
+    } catch (requestError) {
+      setGithubError(requestError instanceof Error ? requestError.message : "Failed to load repositories");
+    } finally {
+      setGithubLoading(false);
+    }
+  }
+
+  function saveGitHubConnection() {
+    if (!selectedRepo) return;
+    window.localStorage.setItem(
+      "probelayer-github-connection",
+      JSON.stringify({
+        repo: selectedRepo,
+        branch: githubBranch,
+        tokenSaved: Boolean(githubToken)
+      })
+    );
+  }
+
+  function generatePersonaSuggestions() {
+    setPersonaSuggestionError("");
+    if (!personaPrompt.trim()) {
+      setPersonaSuggestionError("Describe the product or flow you want personas for.");
+      return;
+    }
+    const suggestions = suggestPersonaPack(personaPrompt);
+    setPersonaSuggestions(suggestions);
+    if (suggestions.length) {
+      setActiveWorkspace("assistant");
+    }
+  }
+
+  function acceptSuggestion(suggestion: PersonaSuggestion) {
+    const id = suggestion.id?.trim() || makePersonaId(suggestion.name ?? "Suggested persona");
+    const persona: PersonaInput = {
+      ...suggestion,
+      id
+    };
+    setCustomPersonas((current) => [...current, persona]);
+    setSelectedIds((current) => arrayToggle(current, id));
+    setPersonaSuggestions((current) => current.filter((item) => item.id !== suggestion.id));
+  }
+
+  function acceptAllSuggestions() {
+    personaSuggestions.forEach((suggestion) => acceptSuggestion(suggestion));
+  }
+
+  function discardSuggestion(id: string) {
+    setPersonaSuggestions((current) => current.filter((suggestion) => suggestion.id !== id));
   }
 
   function addCustomPersona() {
@@ -398,8 +1128,40 @@ export default function HomePage() {
   }
 
   function removeCustomPersona(id: string) {
+    const isEditingRemovedPersona = editingPersona?.id === id;
     setCustomPersonas((current) => current.filter((persona) => persona.id !== id));
     setSelectedIds((current) => current.filter((personaId) => personaId !== id));
+    setPersonaOverrides((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    if (isEditingRemovedPersona) {
+      setEditingPersona(null);
+      setEditingDraft(null);
+    }
+  }
+
+  function openPersonaEditor(persona: Persona) {
+    setEditingPersona(persona);
+    setEditingDraft(buildPersonaInput(persona));
+  }
+
+  function discardPersonaEdits() {
+    setEditingPersona(null);
+    setEditingDraft(null);
+  }
+
+  function savePersonaEdits() {
+    if (!editingPersona || !editingDraft) return;
+    const normalized = normalizePersona({ ...editingDraft, id: editingPersona.id }, 0);
+    setPersonaOverrides((current) => ({
+      ...current,
+      [editingPersona.id]: normalized
+    }));
+    setEditingPersona(null);
+    setEditingDraft(null);
   }
 
   return (
@@ -417,24 +1179,24 @@ export default function HomePage() {
           </div>
         </div>
         <div className="topbar-meta">
+          <span>Dashboard ready</span>
+          <span>GitHub lane</span>
+          <span>Assistant lane</span>
           <span>Gemini 3.5 Flash</span>
-          <span>Design variance 9/10</span>
-          <span>Motion intensity 9/10</span>
-          <span>Visual density 4/10</span>
         </div>
       </header>
 
       <section className="hero" ref={heroRef}>
         <div className="hero-copy">
-          <p className="hero-kicker eyebrow">Synthetic human testing</p>
+          <p className="hero-kicker eyebrow">Dual-wing supervisor</p>
           <h1 className="hero-title">
-            <span>Find where real people</span>
-            <span>get confused, overloaded, or suspicious</span>
-            <span>before launch.</span>
+            <span>Find where real users</span>
+            <span>get stuck, and where bad</span>
+            <span>actors get through, before launch.</span>
           </h1>
           <p>
-            Probelayer uses personas, screenshot reasoning, and defensive interaction checks to reveal
-            UX, trust, accessibility, cognitive load, and abuse risks in the first pass.
+            Probelayer runs UX and red-team suites in parallel, keeps the findings separated by wing, and
+            merges the final report only after both passes complete.
           </p>
 
           <form className="hero-actions" onSubmit={handleRun}>
@@ -446,9 +1208,30 @@ export default function HomePage() {
                 placeholder="https://example.com/signup"
               />
             </label>
+
+            <div className="hero-settings">
+              <label className="field">
+                <span>Scenario</span>
+                <select value={scenario} onChange={(event) => setScenario(event.target.value as AnalysisScenario)}>
+                  <option value="balanced">Balanced</option>
+                  <option value="cognitive">Cognitive load</option>
+                  <option value="mobile">Mobile</option>
+                  <option value="pen-test">Pen-test</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Red-team depth</span>
+                <select value={redTeamLevel} onChange={(event) => setRedTeamLevel(event.target.value as PentestLevel)}>
+                  <option value="quick">Quick</option>
+                  <option value="deep">Deep</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </label>
+            </div>
+
             <div className="hero-buttons">
               <button className="button-primary" type="submit" disabled={loading}>
-                {loading ? "Simulating..." : "Run simulation"}
+                {loading ? "Simulating..." : "Run supervisor"}
                 <span>→</span>
               </button>
               <a className="button-secondary" href="#analysis">
@@ -460,350 +1243,497 @@ export default function HomePage() {
         </div>
 
         <div className="hero-panel card-shell floating-card reveal">
-          <div className="card-core hero-panel-core">
-            <p className="eyebrow">Design dials</p>
-            <div className="dial-grid">
-              <DialControl
-                label="Design variance"
-                value={dialSettings.designVariance}
-                onChange={(value) => setDialSettings((current) => ({ ...current, designVariance: value }))}
-                hint="Higher values lean into asymmetry and modern layout shifts."
-              />
-              <DialControl
-                label="Motion intensity"
-                value={dialSettings.motionIntensity}
-                onChange={(value) => setDialSettings((current) => ({ ...current, motionIntensity: value }))}
-                hint="Higher values increase reveal depth, motion layering, and kinetic emphasis."
-              />
-              <DialControl
-                label="Visual density"
-                value={dialSettings.visualDensity}
-                onChange={(value) => setDialSettings((current) => ({ ...current, visualDensity: value }))}
-                hint="Keep this low-mid so the interface stays premium and readable."
-              />
-            </div>
-            <div className="scenario-row">
-              {(["balanced", "pen-test", "cognitive", "mobile"] as AnalysisScenario[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`scenario-pill ${scenario === mode ? "is-selected" : ""}`}
-                  onClick={() => setScenario(mode)}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            <div className="hero-summary-grid">
-              <div>
-                <span>Selected personas</span>
-                <strong>{selectedPersonas.length}</strong>
-              </div>
-              <div>
-                <span>Custom personas</span>
-                <strong>{customPersonas.length}</strong>
-              </div>
-              <div>
-                <span>Model</span>
-                <strong>{result?.usedModel ? "Gemini active" : "Ready"}</strong>
-              </div>
-            </div>
-          </div>
+          <CoverageCard
+            uxSelectedCount={uxSelectedPersonas.length || baselinePersonas.length}
+            redTeamSelectedCount={redTeamSelectedPersonas.length || stressLibrary.length}
+            customCount={customPersonas.length}
+            scenario={scenario}
+            modelReady={Boolean(result?.usedModel)}
+            redTeamLevel={redTeamLevel}
+            activeWorkspace={activeWorkspace}
+            supervisorState={supervisorSummary.wingState}
+            focusMetric={focusMetric}
+            onSelectFocus={setFocusMetric}
+            onSelectWorkspace={setActiveWorkspace}
+          />
         </div>
       </section>
 
-      <section className="content-grid" id="analysis">
-        <div className="left-column">
-          <section className="floating-card card-shell reveal">
-            <div className="card-core">
-              <p className="eyebrow">Persona library</p>
-              <div className="section-head">
-                <h2>Balanced default set plus custom personas</h2>
-                <p>
-                  Mix default personas with your own audience definitions, clone what works, and keep a
-                  persistent pack in local storage.
-                </p>
-              </div>
+      {activeWorkspace === "dashboard" ? (
+        <section className="content-grid" id="analysis">
+          <div className="left-column">
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Persona library</p>
+                <div className="section-head">
+                  <h2>Balanced default set plus custom personas</h2>
+                  <p>
+                    Mix default personas with your own audience definitions, clone what works, and keep a
+                    persistent pack in local storage.
+                  </p>
+                </div>
 
-              <div className="persona-grid">
-                {allPersonas.map((persona, index) => {
-                  const selected = selectedIds.includes(persona.id);
-                  const isCustom = index >= defaultPersonas.length;
-                  return (
-                    <PersonaCard
-                      key={persona.id}
-                      persona={persona}
-                      selected={selected}
-                      onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
-                      onClone={() => clonePersona(persona)}
-                      onRemove={isCustom ? () => removeCustomPersona(persona.id) : undefined}
-                      isCustom={isCustom}
+                <div className="persona-grid">
+                  {baselinePersonas.map((persona) => {
+                    const selected = selectedIds.includes(persona.id);
+                    return (
+                      <PersonaCard
+                        key={persona.id}
+                        persona={persona}
+                        selected={selected}
+                        onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
+                        onEdit={() => openPersonaEditor(persona)}
+                        onClone={() => clonePersona(persona)}
+                        isCustom={false}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="section-head persona-subhead">
+                  <div>
+                    <p className="eyebrow">Stress & abuse pack</p>
+                    <h3>Button mashers and pen-test agents</h3>
+                  </div>
+                  <p>These agents are ready for repeated submits, bypass attempts, and destructive-path checks.</p>
+                </div>
+
+                <div className="persona-grid persona-grid-stress">
+                  {stressLibrary.map((persona) => {
+                    const selected = selectedIds.includes(persona.id);
+                    return (
+                      <PersonaCard
+                        key={persona.id}
+                        persona={persona}
+                        selected={selected}
+                        onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
+                        onEdit={() => openPersonaEditor(persona)}
+                        onClone={() => clonePersona(persona)}
+                        isCustom={false}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="section-head persona-subhead">
+                  <div>
+                    <p className="eyebrow">Saved customs</p>
+                    <h3>Your editable persona set</h3>
+                  </div>
+                  <p>These live in local storage and can be edited, cloned, or removed without affecting the defaults.</p>
+                </div>
+
+                <div className="persona-grid persona-grid-custom">
+                  {customLibrary.length ? (
+                    customLibrary.map((persona) => {
+                      const selected = selectedIds.includes(persona.id);
+                      return (
+                        <PersonaCard
+                          key={persona.id}
+                          persona={persona}
+                          selected={selected}
+                          onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
+                          onEdit={() => openPersonaEditor(persona)}
+                          onClone={() => clonePersona(persona)}
+                          onRemove={() => removeCustomPersona(persona.id)}
+                          isCustom
+                        />
+                      );
+                    })
+                  ) : (
+                    <div className="empty-findings persona-empty">
+                      <p>No custom personas saved yet. Use the form below to add one, then edit it here.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Create persona</p>
+                <div className="section-head">
+                  <h2>Manually add a persona for a specific product or funnel</h2>
+                  <p>
+                    Build custom audience profiles, combine them with the defaults, and keep the results saved
+                    for the next run.
+                  </p>
+                </div>
+
+                <div className="custom-form">
+                  <label className="field">
+                    <span>Name</span>
+                    <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Behavioral lens</span>
+                    <input value={draft.lens} onChange={(event) => setDraft((current) => ({ ...current, lens: event.target.value }))} />
+                  </label>
+                  <label className="field wide">
+                    <span>Primary goal</span>
+                    <input value={draft.goal} onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))} />
+                  </label>
+                  <label className="field wide">
+                    <span>Risk biases</span>
+                    <input
+                      value={draft.riskBias}
+                      onChange={(event) => setDraft((current) => ({ ...current, riskBias: event.target.value }))}
                     />
-                  );
-                })}
-              </div>
-            </div>
-          </section>
+                  </label>
+                  <label className="field">
+                    <span>Patience</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={draft.patience}
+                      onChange={(event) => setDraft((current) => ({ ...current, patience: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Trust</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={draft.trust}
+                      onChange={(event) => setDraft((current) => ({ ...current, trust: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field wide">
+                    <span>Accessibility needs</span>
+                    <input
+                      value={draft.accessibility}
+                      onChange={(event) => setDraft((current) => ({ ...current, accessibility: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Tone</span>
+                    <input value={draft.tone} onChange={(event) => setDraft((current) => ({ ...current, tone: event.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>Tags</span>
+                    <input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} />
+                  </label>
+                </div>
 
-          <section className="floating-card card-shell reveal">
-            <div className="card-core">
-              <p className="eyebrow">Create persona</p>
-              <div className="section-head">
-                <h2>Manually add a persona for a specific product or funnel</h2>
-                <p>
-                  Build custom audience profiles, combine them with the defaults, and keep the results saved
-                  for the next run.
-                </p>
-              </div>
-
-              <div className="custom-form">
-                <label className="field">
-                  <span>Name</span>
-                  <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
-                </label>
-                <label className="field">
-                  <span>Behavioral lens</span>
-                  <input value={draft.lens} onChange={(event) => setDraft((current) => ({ ...current, lens: event.target.value }))} />
-                </label>
-                <label className="field wide">
-                  <span>Primary goal</span>
-                  <input value={draft.goal} onChange={(event) => setDraft((current) => ({ ...current, goal: event.target.value }))} />
-                </label>
-                <label className="field wide">
-                  <span>Risk biases</span>
+                <label className="checkbox-row">
                   <input
-                    value={draft.riskBias}
-                    onChange={(event) => setDraft((current) => ({ ...current, riskBias: event.target.value }))}
+                    type="checkbox"
+                    checked={draft.penTest}
+                    onChange={(event) => setDraft((current) => ({ ...current, penTest: event.target.checked }))}
                   />
+                  <span>Pen-test persona</span>
                 </label>
-                <label className="field">
-                  <span>Patience</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={draft.patience}
-                    onChange={(event) => setDraft((current) => ({ ...current, patience: event.target.value }))}
-                  />
-                </label>
-                <label className="field">
-                  <span>Trust</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={draft.trust}
-                    onChange={(event) => setDraft((current) => ({ ...current, trust: event.target.value }))}
-                  />
-                </label>
-                <label className="field wide">
-                  <span>Accessibility needs</span>
-                  <input
-                    value={draft.accessibility}
-                    onChange={(event) => setDraft((current) => ({ ...current, accessibility: event.target.value }))}
-                  />
-                </label>
-                <label className="field">
-                  <span>Tone</span>
-                  <input value={draft.tone} onChange={(event) => setDraft((current) => ({ ...current, tone: event.target.value }))} />
-                </label>
-                <label className="field">
-                  <span>Tags</span>
-                  <input value={draft.tags} onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))} />
-                </label>
-              </div>
 
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={draft.penTest}
-                  onChange={(event) => setDraft((current) => ({ ...current, penTest: event.target.checked }))}
-                />
-                <span>Pen-test persona</span>
-              </label>
-
-              <div className="stack-actions">
-                <button className="button-primary" type="button" onClick={addCustomPersona}>
-                  Save persona
-                  <span>→</span>
-                </button>
-                <button className="button-secondary" type="button" onClick={() => setDraft(defaultCustomDraft)}>
-                  Reset form
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div className="right-column" ref={resultRef}>
-          <section className="floating-card card-shell reveal">
-            <div className="card-core">
-              <p className="eyebrow">Run status</p>
-              <div className="section-head inline">
-                <h2>Simulation output</h2>
-                <span className="status-pill">
-                  {result?.usedModel ? "Gemini 3.5 Flash active" : "Heuristic fallback ready"}
-                </span>
-              </div>
-
-              <div className="summary-grid">
-                <div className="summary-box">
-                  <span>Mode</span>
-                  <strong>{result ? result.scenario : scenario}</strong>
-                </div>
-                <div className="summary-box">
-                  <span>Signals</span>
-                  <strong>
-                    {result ? `${result.pageFacts.buttonCount} buttons / ${result.pageFacts.inputCount} inputs` : "Waiting"}
-                  </strong>
-                </div>
-                <div className="summary-box">
-                  <span>Inputs</span>
-                  <strong>{result ? result.pageFacts.analysisInputs.join(" + ") : "Screenshot + DOM + personas"}</strong>
-                </div>
-                <div className="summary-box">
-                  <span>Selected</span>
-                  <strong>{selectedPersonas.length}</strong>
+                <div className="stack-actions">
+                  <button className="button-primary" type="button" onClick={addCustomPersona}>
+                    Save persona
+                    <span>→</span>
+                  </button>
+                  <button className="button-secondary" type="button" onClick={() => setDraft(defaultCustomDraft)}>
+                    Reset form
+                  </button>
                 </div>
               </div>
+            </section>
+          </div>
 
-              {result ? (
-                <div className="score-grid">
-                  <ScoreCard
-                    label="Confusion"
-                    value={result.scores.confusion}
-                    description="Misunderstanding the page or the next step."
-                  />
-                  <ScoreCard
-                    label="Trust risk"
-                    value={result.scores.trustRisk}
-                    description="Billing, confirmation, policy, or credibility signals that create doubt."
-                  />
-                  <ScoreCard
-                    label="Abandonment"
-                    value={result.scores.abandonment}
-                    description="Users bailing because the flow feels too demanding or unclear."
-                  />
-                  <ScoreCard
-                    label="Exploitability"
-                    value={result.scores.exploitability}
-                    description="Abuse paths, weak boundaries, or loophole-prone language."
-                  />
-                  <ScoreCard
-                    label="Overload"
-                    value={result.scores.visualOverload}
-                    description="The number of simultaneous choices and how crowded the layout feels."
-                  />
-                  <ScoreCard
-                    label="Accessibility friction"
-                    value={result.scores.accessibilityFriction}
-                    description="Keyboard, focus, contrast, and high-load navigation risks."
-                  />
+          <div className="right-column" ref={resultRef}>
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Supervisor output</p>
+                <div className="section-head inline">
+                  <h2>Parallel wing report</h2>
+                  <span className="status-pill">
+                    {result?.usedModel ? "Gemini 3.5 Flash active" : "Heuristic fallback ready"}
+                  </span>
                 </div>
-              ) : null}
-            </div>
-          </section>
 
-          <section className="floating-card card-shell reveal">
-            <div className="card-core">
-              <p className="eyebrow">Visual map</p>
-              <div className="section-head inline">
-                <h2>Hotspots over the live screenshot</h2>
-                <span className="status-pill">{result ? new URL(result.targetUrl).hostname : "No run yet"}</span>
+                <div className="supervisor-wing-grid">
+                  {result ? (
+                    <>
+                      <WingSummaryCard wing={result.wings.ux} activeMetric={focusMetric} title="Wing 1" />
+                      <WingSummaryCard wing={result.wings.redTeam} activeMetric={focusMetric} title="Wing 2" />
+                    </>
+                  ) : (
+                    <div className="empty-findings persona-empty supervisor-empty">
+                      <p>Run Probelayer to launch the UX suite and the red-team suite together.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="summary-grid">
+                  <div className="summary-box">
+                    <span>Mode</span>
+                    <strong>{result ? result.scenario : scenario}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Depth</span>
+                    <strong>{redTeamLevel}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Inputs</span>
+                    <strong>{result ? result.pageFacts.analysisInputs.join(" + ") : "Screenshot + DOM + personas"}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Supervisor</span>
+                    <strong>{supervisorSummary.wingState}</strong>
+                  </div>
+                </div>
+
+                {result ? (
+                  <div className="score-grid">
+                    <ScoreCard
+                      label="Confusion"
+                      value={result.scores.confusion}
+                      description="Misunderstanding the page or the next step."
+                      active={focusMetric === "confusion"}
+                    />
+                    <ScoreCard
+                      label="Trust risk"
+                      value={result.scores.trustRisk}
+                      description="Billing, confirmation, policy, or credibility signals that create doubt."
+                      active={focusMetric === "trust"}
+                    />
+                    <ScoreCard
+                      label="Abandonment"
+                      value={result.scores.abandonment}
+                      description="Users bailing because the flow feels too demanding or unclear."
+                    />
+                    <ScoreCard
+                      label="Exploitability"
+                      value={result.scores.exploitability}
+                      description="Abuse paths, weak boundaries, or loophole-prone language."
+                      active={focusMetric === "abuse"}
+                    />
+                    <ScoreCard
+                      label="Cognitive load"
+                      value={result.scores.visualOverload}
+                      description="The number of simultaneous choices and how crowded the layout feels."
+                      active={focusMetric === "confusion"}
+                    />
+                    <ScoreCard
+                      label="Accessibility friction"
+                      value={result.scores.accessibilityFriction}
+                      description="Keyboard, focus, contrast, and high-load navigation risks."
+                      active={focusMetric === "accessibility"}
+                    />
+                  </div>
+                ) : null}
               </div>
+            </section>
 
-              <div className="screenshot-frame">
-                {result?.screenshot ? (
-                  <>
-                    <img src={result.screenshot} alt="Probelayer analysis screenshot" />
-                    {result.findings.map((finding, index) => (
-                      <span
-                        key={`${finding.persona}-${index}`}
-                        className={`hotspot severity-${finding.severity}`}
-                        title={`${finding.persona}: ${finding.theme}`}
-                        style={
-                          {
-                            left: `${finding.x}%`,
-                            top: `${finding.y}%`,
-                            "--delay": `${index * 0.05}s`
-                        } as CSSProperties
-                        }
-                      >
-                        <b>{index + 1}</b>
-                        <em>{finding.theme}</em>
-                      </span>
-                    ))}
-                  </>
-                ) : (
-                  <div className="empty-state">
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Visual map</p>
+                <div className="section-head inline">
+                  <h2>Hotspots over the live screenshot</h2>
+                  <span className="status-pill">{result ? new URL(result.targetUrl).hostname : "No run yet"}</span>
+                </div>
+
+                <div className="screenshot-frame">
+                  {result?.screenshot ? (
+                    <>
+                      <img src={result.screenshot} alt="Probelayer analysis screenshot" />
+                      {supervisorFindings.map((finding, index) => (
+                        <span
+                          key={`${finding.persona}-${index}`}
+                          className={`hotspot severity-${finding.severity}`}
+                          title={`${finding.persona}: ${finding.theme}`}
+                          style={
+                            {
+                              left: `${finding.x}%`,
+                              top: `${finding.y}%`,
+                              "--delay": `${index * 0.05}s`
+                            } as CSSProperties
+                          }
+                        >
+                          <b>{index + 1}</b>
+                          <em>{finding.theme}</em>
+                        </span>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="empty-state">
+                      <div>
+                        <strong>No simulation yet</strong>
+                        <p>
+                          Run Probelayer against the built-in demo flow or a live URL to capture a screenshot,
+                          plot risks, and generate a full analysis.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="analysis-note">
+                  <span>Interaction scan</span>
+                  <p>
+                    {result?.pageFacts.interaction.note ||
+                      "Probelayer inspects copy, layout pressure, and action labels without clicking destructive controls."}
+                  </p>
+                </div>
+
+                {result ? (
+                  <div className="analysis-metadata">
                     <div>
-                      <strong>No simulation yet</strong>
-                      <p>
-                        Run Probelayer against the built-in demo flow or a live URL to capture a screenshot,
-                        plot risks, and generate a full analysis.
-                      </p>
+                      <span>Buttons</span>
+                      <strong>{result.pageFacts.interaction.buttonLabels.join(", ") || "None detected"}</strong>
+                    </div>
+                    <div>
+                      <span>High-impact actions</span>
+                      <strong>{result.pageFacts.interaction.highImpactActions.join(", ") || "None detected"}</strong>
+                    </div>
+                    <div>
+                      <span>Ambiguous actions</span>
+                      <strong>{result.pageFacts.interaction.ambiguousActions.join(", ") || "None detected"}</strong>
+                    </div>
+                    <div>
+                      <span>Repeated labels</span>
+                      <strong>{result.pageFacts.interaction.repeatedActionLabels.join(", ") || "None detected"}</strong>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
+            </section>
 
-              <div className="analysis-note">
-                <span>Interaction scan</span>
-                <p>
-                  {result?.pageFacts.interaction.note ||
-                    "Probelayer inspects copy, layout pressure, and action labels without clicking destructive controls."}
-                </p>
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Findings</p>
+                <div className="section-head inline">
+                  <h2>Behavioral risk report</h2>
+                  <span className="status-pill">{result ? `${result.findings.length} findings` : "Awaiting run"}</span>
+                </div>
+
+                <div className="findings-stack">
+                  {result ? (
+                    supervisorFindings.map((finding, index) => (
+                      <FindingCard key={`${finding.persona}-${index}`} finding={finding} index={index} />
+                    ))
+                  ) : (
+                    <div className="empty-findings">
+                      <p>
+                        No findings yet. Select personas, tune the dials, and run a simulation to surface
+                        confusion, trust collapse, overload, and defensive abuse signals.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {result ? <p className="summary-copy">{result.summary}</p> : null}
               </div>
-
-              {result ? (
+            </section>
+          </div>
+        </section>
+      ) : activeWorkspace === "github" ? (
+        <section className="content-grid" id="analysis">
+          <div className="left-column">
+            <GitHubLanePanel
+              githubToken={githubToken}
+              setGithubToken={setGithubToken}
+              githubRepos={githubRepos}
+              githubLoading={githubLoading}
+              githubError={githubError}
+              selectedRepo={selectedRepo}
+              setSelectedRepo={setSelectedRepo}
+              githubBranch={githubBranch}
+              setGithubBranch={setGithubBranch}
+              loadGitHubRepos={loadGitHubRepos}
+              saveGitHubConnection={saveGitHubConnection}
+              setActiveWorkspace={setActiveWorkspace}
+            />
+          </div>
+          <div className="right-column">
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">CI/CD roadmap</p>
+                <div className="section-head">
+                  <h2>Dashboard first now, push automation later</h2>
+                  <p>
+                    This lane keeps repository selection and branch selection ready now, then leaves webhook and
+                    push-trigger automation for the next phase.
+                  </p>
+                </div>
                 <div className="analysis-metadata">
                   <div>
-                    <span>Buttons</span>
-                    <strong>{result.pageFacts.interaction.buttonLabels.join(", ") || "None detected"}</strong>
+                    <span>Selected repo</span>
+                    <strong>{selectedRepo ? selectedRepo.fullName : "No repository selected"}</strong>
                   </div>
                   <div>
-                    <span>High-impact actions</span>
-                    <strong>{result.pageFacts.interaction.highImpactActions.join(", ") || "None detected"}</strong>
+                    <span>Branch</span>
+                    <strong>{githubBranch}</strong>
                   </div>
                   <div>
-                    <span>Ambiguous actions</span>
-                    <strong>{result.pageFacts.interaction.ambiguousActions.join(", ") || "None detected"}</strong>
+                    <span>Token state</span>
+                    <strong>{githubToken ? "Entered" : "Waiting"}</strong>
                   </div>
                   <div>
-                    <span>Repeated labels</span>
-                    <strong>{result.pageFacts.interaction.repeatedActionLabels.join(", ") || "None detected"}</strong>
+                    <span>Next step</span>
+                    <strong>Push-triggered runs after dashboard validation</strong>
                   </div>
                 </div>
-              ) : null}
-            </div>
-          </section>
-
-          <section className="floating-card card-shell reveal">
-            <div className="card-core">
-              <p className="eyebrow">Findings</p>
-              <div className="section-head inline">
-                <h2>Behavioral risk report</h2>
-                <span className="status-pill">{result ? `${result.findings.length} findings` : "Awaiting run"}</span>
               </div>
-
-              <div className="findings-stack">
-                {result ? (
-                  result.findings.map((finding, index) => <FindingCard key={`${finding.persona}-${index}`} finding={finding} index={index} />)
-                ) : (
-                  <div className="empty-findings">
-                    <p>
-                      No findings yet. Select personas, tune the dials, and run a simulation to surface
-                      confusion, trust collapse, overload, and defensive abuse signals.
-                    </p>
+            </section>
+          </div>
+        </section>
+      ) : (
+        <section className="content-grid" id="analysis">
+          <div className="left-column">
+            <PersonaAssistantPanel
+              personaPrompt={personaPrompt}
+              setPersonaPrompt={setPersonaPrompt}
+              personaSuggestions={personaSuggestions}
+              personaSuggestionError={personaSuggestionError}
+              generatePersonaSuggestions={generatePersonaSuggestions}
+              acceptSuggestion={acceptSuggestion}
+              acceptAllSuggestions={acceptAllSuggestions}
+              discardSuggestion={discardSuggestion}
+              setActiveWorkspace={setActiveWorkspace}
+            />
+          </div>
+          <div className="right-column">
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Persona pack assistant</p>
+                <div className="section-head">
+                  <h2>Later: model-assisted persona packs</h2>
+                  <p>
+                    This lane will eventually use project context and product description to suggest tailored
+                    persona sets that you can accept, edit, save, or discard.
+                  </p>
+                </div>
+                <div className="analysis-metadata">
+                  <div>
+                    <span>Suggested personas</span>
+                    <strong>{personaSuggestions.length || "None yet"}</strong>
                   </div>
-                )}
+                  <div>
+                    <span>Workflow</span>
+                    <strong>Describe product → review suggestions → accept or discard</strong>
+                  </div>
+                  <div>
+                    <span>Manual override</span>
+                    <strong>Still fully supported through the persona editor</strong>
+                  </div>
+                  <div>
+                    <span>Future model hook</span>
+                    <strong>Can be upgraded to model-backed generation later</strong>
+                  </div>
+                </div>
               </div>
+            </section>
+          </div>
+        </section>
+      )}
 
-              {result ? <p className="summary-copy">{result.summary}</p> : null}
-            </div>
-          </section>
-        </div>
-      </section>
+      <PersonaEditorModal
+        persona={editingPersona}
+        draft={editingDraft}
+        onChange={setEditingDraft}
+        onSave={savePersonaEdits}
+        onDiscard={discardPersonaEdits}
+      />
     </main>
   );
 }

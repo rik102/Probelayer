@@ -9,6 +9,8 @@ import {
 } from "./personas";
 
 export type AnalysisScenario = "balanced" | "pen-test" | "cognitive" | "mobile";
+export type SimulationSuite = "ux" | "red-team";
+export type PentestLevel = "quick" | "deep" | "aggressive";
 
 export type SimulationFinding = {
   persona: string;
@@ -53,7 +55,7 @@ export type SimulationResult = {
   usedModel: boolean;
 };
 
-type PageFacts = {
+export type PageFacts = {
   title: string;
   buttons: string[];
   links: string[];
@@ -87,6 +89,17 @@ export type SimulationRequest = {
   scenario: AnalysisScenario;
   personas?: PersonaInput[];
   dialSettings?: DialSettings;
+};
+
+export type AnalyzeCapturedPageRequest = {
+  targetUrl: string;
+  scenario: AnalysisScenario;
+  screenshot: string;
+  facts: PageFacts;
+  personas?: PersonaInput[];
+  dialSettings?: DialSettings;
+  suite?: SimulationSuite;
+  pentestLevel?: PentestLevel;
 };
 
 function clampScore(value: number) {
@@ -235,7 +248,7 @@ function anchorFindings(findings: SimulationFinding[], facts: PageFacts) {
   });
 }
 
-async function capturePage(targetUrl: string): Promise<{ screenshot: string; facts: PageFacts }> {
+export async function capturePage(targetUrl: string): Promise<{ screenshot: string; facts: PageFacts }> {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1024 },
@@ -587,13 +600,15 @@ function fallbackFindings(facts: PageFacts, selectedPersonas: Persona[], scenari
   return selectedPersonas.slice(0, 10).map((persona, index) => buildFallbackFinding(persona, facts, scenario, index));
 }
 
-function fallbackSummary(facts: PageFacts, findings: SimulationFinding[]) {
+function fallbackSummary(facts: PageFacts, findings: SimulationFinding[], context?: { suite?: SimulationSuite; pentestLevel?: PentestLevel }) {
   const high = findings.filter((finding) => finding.severity === "high").length;
-  return `Probelayer found ${findings.length} behavioral risk signals in the first-pass analysis. ${high} are high severity. The strongest risks cluster around ${[
+  const suiteLabel = context?.suite === "red-team" ? "red-team suite" : "UX suite";
+  const depthLabel = context?.pentestLevel ? ` The ${context.pentestLevel} pass stays ${context.pentestLevel === "quick" ? "fast" : context.pentestLevel === "deep" ? "balanced" : "thorough"}.` : "";
+  return `Probelayer found ${findings.length} behavioral risk signals in the ${suiteLabel} first-pass analysis. ${high} are high severity. The strongest risks cluster around ${[
     ...new Set(findings.map((finding) => finding.theme.toLowerCase()))
   ]
     .slice(0, 3)
-    .join(", ")}.`;
+    .join(", ")}.${depthLabel}`;
 }
 
 async function modelFindings({
@@ -601,13 +616,17 @@ async function modelFindings({
   screenshot,
   facts,
   selectedPersonas,
-  scenario
+  scenario,
+  suite,
+  pentestLevel
 }: {
   targetUrl: string;
   screenshot: string;
   facts: PageFacts;
   selectedPersonas: Persona[];
   scenario: AnalysisScenario;
+  suite?: SimulationSuite;
+  pentestLevel?: PentestLevel;
 }) {
   const model = process.env.VISION_MODEL ?? "gemini-3.5-flash";
   const content = await callOpenAICompatibleChat({
@@ -626,6 +645,8 @@ async function modelFindings({
             text: JSON.stringify({
               targetUrl,
               scenario,
+              suite: suite ?? "ux",
+              pentestLevel: pentestLevel ?? "quick",
               personas: selectedPersonas.map((persona) => ({
                 name: persona.name,
                 lens: persona.lens,
@@ -660,7 +681,11 @@ async function modelFindings({
                 "Use numeric x and y percentages, not words.",
                 "Use only the allowed severity and emotion enum values.",
                 "Prefer concrete, actionable evidence and recommendations.",
-                "If the scenario is pen-test, emphasize defensive boundary risks."
+                "If the scenario is pen-test, emphasize defensive boundary risks.",
+                suite === "red-team"
+                  ? "This is the red-team lane. Focus on abuse, bypasses, repeated actions, and weak boundaries."
+                  : "This is the UX lane. Focus on clarity, trust, accessibility, and overload.",
+                pentestLevel ? `Pentest depth is ${pentestLevel}. Adjust the breadth and severity accordingly.` : "Use the default red-team depth."
               ]
             })
           },
@@ -690,6 +715,35 @@ function scenarioFromPersonas(scenario: AnalysisScenario) {
   return scenario;
 }
 
+export function getPentestProfile(level: PentestLevel = "quick") {
+  switch (level) {
+    case "deep":
+      return {
+        label: "Deep",
+        durationHint: "8-15 min",
+        findingLimit: 7,
+        scoreBoost: 7,
+        description: "multi-pass coverage with broader boundary probing"
+      };
+    case "aggressive":
+      return {
+        label: "Aggressive",
+        durationHint: "20-45+ min",
+        findingLimit: 10,
+        scoreBoost: 14,
+        description: "heavier fan-out with deeper abuse and boundary variation"
+      };
+    default:
+      return {
+        label: "Quick",
+        durationHint: "2-5 min",
+        findingLimit: 4,
+        scoreBoost: 0,
+        description: "fast heuristic-heavy abuse screening"
+      };
+  }
+}
+
 function scoreWithDials(base: number, dialSettings?: DialSettings, adjustments?: { designVariance?: number; motionIntensity?: number; visualDensity?: number }) {
   const dialVariance = dialSettings?.designVariance ?? 9;
   const dialMotion = dialSettings?.motionIntensity ?? 9;
@@ -702,38 +756,43 @@ function scoreWithDials(base: number, dialSettings?: DialSettings, adjustments?:
   );
 }
 
-export async function runSimulation(request: SimulationRequest): Promise<SimulationResult> {
+export async function analyzeCapturedPage(request: AnalyzeCapturedPageRequest): Promise<SimulationResult> {
   const scenario = scenarioFromPersonas(request.scenario);
   const selectedPersonas = request.personas?.length
     ? request.personas.map((input, index) => normalizePersona(input, index))
     : selectDefaultPersonas(scenario);
-
   const personasForRun = selectedPersonas.length ? selectedPersonas : defaultPersonas;
-  const { screenshot, facts } = await capturePage(request.targetUrl);
+  const pentestProfile = request.pentestLevel ? getPentestProfile(request.pentestLevel) : null;
 
   let usedModel = false;
-  let findings = fallbackFindings(facts, personasForRun, scenario);
-  let summary = fallbackSummary(facts, findings);
+  let findings = fallbackFindings(request.facts, personasForRun, scenario);
+  let summary = fallbackSummary(request.facts, findings, { suite: request.suite, pentestLevel: request.pentestLevel });
 
   try {
     const modeled = await modelFindings({
       targetUrl: request.targetUrl,
-      screenshot,
-      facts,
+      screenshot: request.screenshot,
+      facts: request.facts,
       selectedPersonas: personasForRun,
-      scenario
+      scenario,
+      suite: request.suite,
+      pentestLevel: request.pentestLevel
     });
 
     if (modeled?.findings?.length) {
       usedModel = true;
-      findings = modeled.findings.slice(0, 10);
+      findings = modeled.findings.slice(0, pentestProfile?.findingLimit ?? 10);
       summary = modeled.summary || summary;
     }
   } catch (error) {
     console.warn("Falling back to heuristic simulation", error);
   }
 
-  findings = anchorFindings(findings, facts);
+  findings = anchorFindings(findings, request.facts).slice(0, pentestProfile?.findingLimit ?? 10);
+
+  if (pentestProfile && request.suite === "red-team") {
+    summary = `${summary} This ${pentestProfile.label.toLowerCase()} pass is optimized for ${pentestProfile.description}.`;
+  }
 
   const dialSettings = request.dialSettings ?? {
     designVariance: 9,
@@ -743,36 +802,37 @@ export async function runSimulation(request: SimulationRequest): Promise<Simulat
 
   const high = findings.filter((finding) => finding.severity === "high").length;
   const medium = findings.filter((finding) => finding.severity === "medium").length;
-  const text = `${facts.textSample} ${facts.buttons.join(" ")} ${facts.inputs.join(" ")}`;
+  const text = `${request.facts.textSample} ${request.facts.buttons.join(" ")} ${request.facts.inputs.join(" ")}`;
   const securitySignals = keywordScore(text, ["refund", "promo", "support", "admin", "invite", "permission", "policy", "authorization"]);
   const accessibilitySignals = keywordScore(text, ["focus", "keyboard", "contrast", "aria", "screen reader", "tab"]);
 
   return {
     targetUrl: request.targetUrl,
     scenario,
-    screenshot,
+    screenshot: request.screenshot,
     analysisMode: usedModel ? "model" : "heuristic",
     pageFacts: {
-      buttonCount: facts.buttons.length,
-      linkCount: facts.links.length,
-      inputCount: facts.inputs.length,
-      headingCount: facts.headings.length,
+      buttonCount: request.facts.buttons.length,
+      linkCount: request.facts.links.length,
+      inputCount: request.facts.inputs.length,
+      headingCount: request.facts.headings.length,
       analysisInputs: [
         "Playwright screenshot",
         "DOM text",
         "Button labels",
         "Form/input fields",
         "Headings and links",
-        scenario === "pen-test"
-          ? "Defensive abuse heuristics"
+        request.suite === "red-team"
+          ? "Supervisor red-team heuristics"
           : scenario === "cognitive"
             ? "Cognitive-load heuristics"
             : scenario === "mobile"
               ? "Mobile interaction heuristics"
               : "Mixed persona heuristics",
+        pentestProfile ? `Pentest depth: ${pentestProfile.label}` : "Default depth",
         usedModel ? "Gemini 3.5 Flash multimodal reasoning" : "Heuristic fallback rules"
       ],
-      interaction: facts.interaction
+      interaction: request.facts.interaction
     },
     summary,
     scores: {
@@ -781,29 +841,33 @@ export async function runSimulation(request: SimulationRequest): Promise<Simulat
         designVariance: 1,
         motionIntensity: 0
       }),
-      abandonment: scoreWithDials(20 + facts.inputs.length * 5 + facts.buttons.length * 2 + facts.interaction.ambiguousActions.length * 7, dialSettings, {
+      abandonment: scoreWithDials(20 + request.facts.inputs.length * 5 + request.facts.buttons.length * 2 + request.facts.interaction.ambiguousActions.length * 7, dialSettings, {
         designVariance: 1,
         visualDensity: 2
       }),
       exploitability: scoreWithDials(
-        18 + securitySignals * 14 + facts.interaction.highImpactActions.length * 8 + (scenario === "pen-test" ? 10 : 0),
+        18 +
+          securitySignals * 14 +
+          request.facts.interaction.highImpactActions.length * 8 +
+          (scenario === "pen-test" || request.suite === "red-team" ? 10 : 0) +
+          (request.pentestLevel === "deep" ? 5 : request.pentestLevel === "aggressive" ? 12 : 0),
         dialSettings,
         { motionIntensity: 1 }
       ),
       visualOverload: scoreWithDials(
         18 +
-          facts.buttons.length * 3 +
-          facts.links.length * 2 +
-          Math.floor(facts.textSample.length / 120) +
-          (facts.interaction.stressRisk === "high" ? 10 : 0),
+          request.facts.buttons.length * 3 +
+          request.facts.links.length * 2 +
+          Math.floor(request.facts.textSample.length / 120) +
+          (request.facts.interaction.stressRisk === "high" ? 10 : 0),
         dialSettings,
         { visualDensity: 4 }
       ),
       accessibilityFriction: scoreWithDials(
         20 +
-          facts.inputs.length * 4 +
-          facts.buttons.length * 2 +
-          (facts.interaction.focusRisk === "high" ? 12 : facts.interaction.focusRisk === "medium" ? 6 : 0) +
+          request.facts.inputs.length * 4 +
+          request.facts.buttons.length * 2 +
+          (request.facts.interaction.focusRisk === "high" ? 12 : request.facts.interaction.focusRisk === "medium" ? 6 : 0) +
           accessibilitySignals * 10,
         dialSettings,
         { visualDensity: 2 }
@@ -812,6 +876,19 @@ export async function runSimulation(request: SimulationRequest): Promise<Simulat
     findings,
     usedModel
   };
+}
+
+export async function runSimulation(request: SimulationRequest): Promise<SimulationResult> {
+  const { screenshot, facts } = await capturePage(request.targetUrl);
+  return analyzeCapturedPage({
+    targetUrl: request.targetUrl,
+    scenario: request.scenario,
+    screenshot,
+    facts,
+    personas: request.personas,
+    dialSettings: request.dialSettings,
+    suite: "ux"
+  });
 }
 
 export function getDefaultSimulationPersonas() {

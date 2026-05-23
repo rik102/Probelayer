@@ -150,6 +150,35 @@ export const defaultPersonas: Persona[] = [
   }
 ];
 
+export const stressPersonas: Persona[] = [
+  {
+    id: "button-masher",
+    name: "Button masher / rapid retry tester",
+    lens: "double-clicks, back-button thrash, repeated submits, and impatient burst interactions",
+    goal: "surface duplicate submissions, unstable states, and unclear disabled behavior",
+    riskBias: "loading spinners, repeated clicks, destructive actions, race conditions",
+    patience: 19,
+    trust: 44,
+    accessibility: "needs clear disabled states, predictable feedback, and idempotent actions",
+    tone: "impatient and repetitive",
+    penTest: true,
+    tags: ["qa", "stress", "interaction"]
+  },
+  {
+    id: "red-team-tester",
+    name: "Red-team pen tester",
+    lens: "adversarial security reviewer probing bypasses, policy leaks, and weak boundaries",
+    goal: "find unsafe bypasses, weak guardrails, and abusive action paths",
+    riskBias: "promo loopholes, invite abuse, confirmation bypass, authorization ambiguity",
+    patience: 66,
+    trust: 21,
+    accessibility: "not accessibility-focused; scans for policy and abuse boundaries",
+    tone: "probing and adversarial",
+    penTest: true,
+    tags: ["security", "abuse", "bypass"]
+  }
+];
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -212,7 +241,10 @@ export function normalizePersona(input: PersonaInput, index = 0): Persona {
 
 export function selectDefaultPersonas(mode: string) {
   if (mode === "pen-test") {
-    return defaultPersonas.filter((persona) => persona.penTest || persona.tags.includes("security"));
+    return [
+      ...defaultPersonas.filter((persona) => persona.penTest || persona.tags.includes("security")),
+      ...stressPersonas
+    ];
   }
   if (mode === "cognitive") {
     return defaultPersonas.filter((persona) => persona.tags.includes("accessibility") || persona.tags.includes("density"));
@@ -222,4 +254,3 @@ export function selectDefaultPersonas(mode: string) {
   }
   return defaultPersonas;
 }
-

@@ -4,9 +4,9 @@ _Working title: Probelayer._
 
 ## 1. Overview
 
-Probelayer is a synthetic human failure testing platform that runs psychologically distinct user personas against a live web flow, captures a screenshot and DOM signals, and produces behavioral risk findings about confusion, trust collapse, abandonment, accessibility friction, cognitive overload, and abuse potential.
+Probelayer is a synthetic human failure testing platform that runs psychologically distinct user personas against a live web flow through a central supervisor, captures a screenshot and DOM signals, and produces behavioral risk findings about confusion, trust collapse, abandonment, accessibility friction, cognitive overload, and abuse potential.
 
-The product exists to help teams discover pre-release UX and trust failures before real users hit them.
+The product exists to help teams discover pre-release UX and trust failures before real users hit them, while also exposing defensive abuse and bypass risks in parallel.
 
 ## 2. Problem Statement
 
@@ -28,6 +28,8 @@ Probelayer should make behavioral failure simulation as easy to run as a smoke t
 - Specific enough to act on
 - Grounded in the actual page state
 - Useful with or without a multimodal model endpoint
+- Able to run a UX suite and a red-team suite concurrently, then merge them into one supervisor report
+- Easy to extend into GitHub-triggered CI/CD runs later without forcing IaC in the hackathon version
 
 ## 4. Target Users
 
@@ -237,13 +239,32 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
 - It should also check whether the flow is mentally navigable.
 - This is especially valuable for onboarding, checkout, settings, and account recovery flows.
 
+## 8.5 Agentic Persona Assistant
+
+Probelayer should eventually include an agentic persona recommender that turns a product description into a personalized persona pack suggestion set.
+
+### Assistant goals
+
+- Let the user describe the product, audience, and risk profile in plain language.
+- Suggest tailored personas that fit the flow being tested.
+- Allow the user to accept, edit, save, or discard each suggestion.
+- Help non-experts bootstrap a stronger audience model without manually inventing every persona from scratch.
+
+### Assistant scope for now
+
+- The first shipped version should keep the manual persona editor as the primary workflow.
+- The assistant should be additive, not destructive.
+- Suggested personas should be reviewable before they are saved into a custom pack.
+- The assistant can be heuristic-first in the hackathon version and model-assisted later.
+
 ## 9. Key User Journey
 
 1. User opens the app.
 2. User selects or enters a target URL.
 3. User clicks Run simulation.
-4. System captures the page with Playwright.
-5. System extracts page facts:
+4. Supervisor launches the UX suite and the red-team suite at the same time.
+5. System captures the page with Playwright.
+6. System extracts page facts:
    - Buttons
    - Links
    - Inputs
@@ -251,14 +272,17 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
    - Visible text
    - Anchor positions
    - Interaction risk signals
-6. System runs heuristic analysis and optionally multimodal model analysis.
-7. System returns:
+7. Each suite runs heuristic analysis and optionally multimodal model analysis.
+8. Supervisor merges the two suite reports after both finish.
+9. System returns:
    - Summary
    - Scores
    - Persona findings
    - Visual hotspots over the page screenshot
    - Optional pen-test findings when defensive abuse mode is enabled
    - Optional cognitive-load findings for neurodivergent and executive-function-sensitive users
+   - Wing-separated findings for UX and red-team output
+   - Optional GitHub-ready repo/branch context for the CI/CD lane
 
 ## 10. Functional Requirements
 
@@ -288,6 +312,7 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
 - The system should allow teams to add, edit, and save custom personas.
 - The system should support a mixed run of default personas and custom personas.
 - The system should support saved persona packs for product-specific audiences.
+- The system should support a supervisor mode that fans out into a UX suite and a red-team suite concurrently, then merges them into a single report.
 
 ### 10.3.1 Pen-test simulation
 
@@ -304,6 +329,20 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
 - The system should score task-switching burden and first-viewport decision fatigue.
 - The system should recommend simplification, spacing, labeling, and hierarchy improvements.
 
+### 10.3.3 GitHub lane
+
+- The system should allow a user to connect a GitHub repository through a server-side token flow.
+- The system should list repositories using the token without exposing the token to the browser.
+- The system should let the user pick a repository and branch for future CI/CD runs.
+- The system should preserve the connection locally for the dashboard demo, even if push automation is not wired yet.
+
+### 10.3.4 Agentic persona assistant
+
+- The system should let the user describe the product, audience, or workflow in plain language.
+- The system should suggest a small persona pack tailored to that description.
+- The user should be able to accept, edit, save, or discard each suggestion.
+- Suggested personas should never overwrite manually curated personas without explicit user action.
+
 ### 10.4 Multimodal reasoning
 
 - If a compatible model endpoint is configured, the system should send:
@@ -313,6 +352,7 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
   - Structured output instructions
 - The model response must be normalized into the app schema.
 - If the model call fails, the system must fall back to heuristic findings.
+- The UX suite and red-team suite should be able to use the same captured page state without recapturing separately.
 
 ### 10.5 Output
 
@@ -331,6 +371,7 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
   - Recommendation
   - Emotional state
 - The app must plot findings as hotspots on the screenshot.
+- The app must clearly label which findings came from the UX suite and which came from the red-team suite.
 
 ## 11. Non-Functional Requirements
 
@@ -350,6 +391,9 @@ Probelayer should include a dedicated accessibility and cognitive-load lens for 
 - Users can add a custom persona without developer help.
 - Users can run a defensive pen-test mode on a target flow.
 - Users can identify overload and cognitive-friction issues on dense layouts.
+- Users can run the UX suite and red-team suite concurrently and see the outputs remain separated by wing.
+- Users can connect a GitHub repository with a server-side token and store the chosen repo/branch for later CI/CD wiring.
+- Users can describe a product and receive a helpful persona pack suggestion set.
 
 ### Demo success
 
@@ -418,6 +462,10 @@ The MVP is successful when:
 - Defensive pen-test mode
 - Cognitive-load / neurodivergence mode
 - Design dials reflected in the UI
+- Central supervisor with concurrent UX and red-team lanes
+- Dashboard-first reporting with wing-separated findings
+- GitHub repository lane for server-side listing and selection
+- Agentic persona assistant shell for suggested persona packs
 
 ### Phase 1.5
 
@@ -425,6 +473,7 @@ The MVP is successful when:
 - Persona set templates per product type
 - Saved persona collections
 - Button-density and overload scoring improvements
+- Quick / Deep / Aggressive pentest depth modes with clearer timing semantics
 
 ### Phase 2
 
@@ -436,6 +485,9 @@ The MVP is successful when:
 - Mobile viewport simulation
 - Persona coverage meter showing which user types are underrepresented
 - Navigation-thrash and repeated-submit detection
+- GitHub-triggered runs on push or PR
+- Merged supervisor dashboard for commit-aware comparisons
+- More capable agentic persona recommender with accept/save/discard flows
 
 ### Phase 3
 
@@ -450,6 +502,7 @@ The MVP is successful when:
 - Red-team scenario library for defensive resilience testing
 - Cross-funnel comparison dashboard
 - Exportable evidence packs for design reviews and security reviews
+- Ephemeral environment cloning and IaC-backed isolated runners if the product graduates from hackathon scope
 
 ## 16.1 Unique Differentiators
 
