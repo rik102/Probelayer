@@ -281,7 +281,10 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1024 },
-    deviceScaleFactor: 1
+    deviceScaleFactor: 1,
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    locale: "en-US"
   });
   const timeout = Number(process.env.PLAYWRIGHT_TIMEOUT_MS ?? 20000);
 
@@ -345,7 +348,8 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
 
   await page.waitForTimeout(450);
 
-  const facts = await page.evaluate(() => {
+  const readFacts = async () =>
+    page.evaluate(() => {
     const visibleText = (element: Element | null) => (element?.textContent ?? "").replace(/\s+/g, " ").trim();
 
     const labelForInput = (input: Element) => {
@@ -477,7 +481,37 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
           "Interaction scan is non-destructive: Probelayer inspects copy, layout pressure, and action labels without clicking real purchase, submit, or destructive controls."
       }
     };
-  });
+    });
+
+  let facts = await readFacts();
+
+  const needsRetry =
+    targetUrl.includes("huggingface.co") &&
+    facts.buttons.length < 2 &&
+    facts.headings.length < 2 &&
+    facts.textSample.length < 400;
+
+  if (needsRetry) {
+    try {
+      await page.reload({ waitUntil: "load", timeout });
+    } catch {
+      await page.reload({ waitUntil: "domcontentloaded", timeout }).catch(() => undefined);
+    }
+    await page.waitForTimeout(10000);
+    try {
+      await page.evaluate(() => {
+        window.scrollTo(0, Math.max(0, document.body.scrollHeight * 0.2));
+      });
+      await page.waitForTimeout(600);
+      await page.evaluate(() => {
+        window.scrollTo(0, 0);
+      });
+      await page.waitForTimeout(600);
+    } catch {
+      // Best-effort only.
+    }
+    facts = await readFacts();
+  }
 
   const screenshotBuffer = await page.screenshot({ fullPage: false, type: "png" });
   await browser.close();
