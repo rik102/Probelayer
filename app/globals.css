@@ -337,7 +337,7 @@ button:active,
 .hero-copy {
   display: grid;
   gap: 14px;
-  padding: 16px 10px 0 0;
+  padding: 2px 10px 0 0;
 }
 
 .eyebrow,
