@@ -198,9 +198,7 @@ function CoverageCard({
   scenario,
   modelReady,
   redTeamLevel,
-  activeWorkspace,
-  supervisorState,
-  onSelectWorkspace
+  supervisorState
 }: {
   uxSelectedCount: number;
   redTeamSelectedCount: number;
@@ -208,33 +206,13 @@ function CoverageCard({
   scenario: AnalysisScenario;
   modelReady: boolean;
   redTeamLevel: PentestLevel;
-  activeWorkspace: WorkspaceTab;
   supervisorState: string;
-  onSelectWorkspace: (workspace: WorkspaceTab) => void;
 }) {
   return (
     <div className="card-core hero-panel-core coverage-panel">
       <div className="coverage-panel-top">
         <p className="eyebrow">Central supervisor</p>
         <span className="status-pill">{modelReady ? "Model ready" : "Demo ready"}</span>
-      </div>
-      <div className="workspace-tabs" role="tablist" aria-label="Workspace navigation">
-        {[
-          { key: "dashboard", label: "Dashboard" },
-          { key: "github", label: "GitHub" },
-          { key: "assistant", label: "Assistant" }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={activeWorkspace === tab.key}
-            className={`workspace-tab ${activeWorkspace === tab.key ? "is-selected" : ""}`}
-            onClick={() => onSelectWorkspace(tab.key as WorkspaceTab)}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
       <div className="coverage-panel-copy">
         <h2>Two wings, one supervisor, compact enough for the top fold.</h2>
@@ -1086,7 +1064,7 @@ export default function HomePage() {
   const heroRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const [targetUrl, setTargetUrl] = useState("/demo-flow");
-  const [scenario, setScenario] = useState<AnalysisScenario>("balanced");
+  const [scenario, setScenario] = useState<AnalysisScenario>("cognitive");
   const [dialSettings, setDialSettings] = useState<DialSettings>(defaultDialSettings);
   const [redTeamLevel, setRedTeamLevel] = useState<PentestLevel>("quick");
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceTab>("dashboard");
@@ -1583,14 +1561,31 @@ export default function HomePage() {
           <span className="brand-mark">P</span>
           <div>
             <strong>Probelayer</strong>
-            <p>Behavioral failure simulation</p>
           </div>
         </div>
-        <div className="topbar-meta">
-          <span>Dashboard ready</span>
-          <span>GitHub lane</span>
-          <span>Assistant lane</span>
-          <span>Gemini 3.5 Flash</span>
+        <div className="topbar-nav">
+          <button
+            type="button"
+            className={`topbar-tab ${activeWorkspace === "dashboard" ? "is-selected" : ""}`}
+            onClick={() => setActiveWorkspace("dashboard")}
+          >
+            Dashboard
+          </button>
+          <button
+            type="button"
+            className={`topbar-tab ${activeWorkspace === "github" ? "is-selected" : ""}`}
+            onClick={() => setActiveWorkspace("github")}
+          >
+            GitHub
+          </button>
+          <button
+            type="button"
+            className={`topbar-tab ${activeWorkspace === "assistant" ? "is-selected" : ""}`}
+            onClick={() => setActiveWorkspace("assistant")}
+          >
+            Assistant
+          </button>
+          <span className="topbar-powered">Powered by Gemini 3.5 Flash</span>
         </div>
       </header>
 
@@ -1621,7 +1616,6 @@ export default function HomePage() {
               <label className="field">
                 <span>Scenario</span>
                 <select value={scenario} onChange={(event) => setScenario(event.target.value as AnalysisScenario)}>
-                  <option value="balanced">Balanced</option>
                   <option value="cognitive">Cognitive load</option>
                   <option value="mobile">Mobile</option>
                   <option value="pen-test">Pen-test</option>
@@ -1658,9 +1652,7 @@ export default function HomePage() {
             scenario={scenario}
             modelReady={Boolean(result?.usedModel)}
             redTeamLevel={redTeamLevel}
-            activeWorkspace={activeWorkspace}
             supervisorState={supervisorSummary.wingState}
-            onSelectWorkspace={setActiveWorkspace}
           />
         </div>
       </section>
@@ -1672,7 +1664,7 @@ export default function HomePage() {
               <div className="card-core">
                 <p className="eyebrow">Persona library</p>
                 <div className="section-head">
-                  <h2>Balanced default set plus custom personas</h2>
+                  <h2>Default set plus custom personas</h2>
                   <p>
                     Mix default personas with your own audience definitions, clone what works, and keep a
                     persistent pack in local storage.
@@ -1898,7 +1890,7 @@ export default function HomePage() {
 
                 <div className="agent-roster">
                   <div className="section-head inline">
-                    <h3>All agents</h3>
+                    <h3>Agents</h3>
                     <span className="status-pill">
                       {selectedAgentSummary.length}/{agentCards.length} selected
                     </span>
@@ -1944,10 +1936,6 @@ export default function HomePage() {
                 </div>
 
                 <div className="agent-results">
-                  <div className="section-head inline">
-                    <h3>Individual agent results</h3>
-                    <span className="status-pill">{agentCards.length} agents</span>
-                  </div>
                   <div className="agent-results-grid">
                     {agentCards.map((entry) => (
                       <AgentResultCard

@@ -19,32 +19,6 @@ export type PersonaInput = Partial<Persona> & {
 
 export const defaultPersonas: Persona[] = [
   {
-    id: "older-adult",
-    name: "Low-tech older adult",
-    lens: "careful reader, low confidence with modern web patterns, worried about mistakes",
-    goal: "finish the flow without feeling tricked or locked in",
-    riskBias: "password wording, unlabeled icons, unclear next steps, hidden consequences",
-    patience: 38,
-    trust: 46,
-    accessibility: "prefers large targets, clear labels, and minimal ambiguity",
-    tone: "cautious and deliberate",
-    penTest: false,
-    tags: ["ux", "accessibility", "clarity"]
-  },
-  {
-    id: "distracted-parent",
-    name: "Distracted single parent",
-    lens: "time-constrained, multitasking, scanning rather than reading",
-    goal: "finish quickly while avoiding surprise charges",
-    riskBias: "dense copy, long forms, interrupted checkout, ambiguous pricing",
-    patience: 31,
-    trust: 52,
-    accessibility: "prefers direct action labels and short decision paths",
-    tone: "rushed and pragmatic",
-    penTest: false,
-    tags: ["ux", "trust", "speed"]
-  },
-  {
     id: "impatient-shopper",
     name: "Impatient shopper",
     lens: "fast-moving, price-sensitive, intolerant of friction",
@@ -72,16 +46,16 @@ export const defaultPersonas: Persona[] = [
   },
   {
     id: "visual-overload",
-    name: "Visually overwhelmed user",
-    lens: "sensitive to clutter, contrast, competing calls to action, and dense layouts",
-    goal: "identify the correct action without cognitive overload",
-    riskBias: "too many choices, low contrast, crowded forms, noisy hierarchy",
-    patience: 35,
-    trust: 48,
-    accessibility: "needs spacing, contrast, and a strong visual hierarchy",
-    tone: "overloaded and uncertain",
+    name: "Neurodivergent / executive-function sensitive user",
+    lens: "sensitive to task switching, mental load, and ambiguous sequencing",
+    goal: "complete the task without losing place or momentum",
+    riskBias: "too many buttons, multi-step ambiguity, memory burden, competing paths",
+    patience: 42,
+    trust: 53,
+    accessibility: "needs clear prioritization, fewer simultaneous choices, and strong structure",
+    tone: "methodical but easily overloaded",
     penTest: false,
-    tags: ["ux", "density", "hierarchy"]
+    tags: ["accessibility", "cognitive-load", "density"]
   },
   {
     id: "scammer",
@@ -124,16 +98,16 @@ export const defaultPersonas: Persona[] = [
   },
   {
     id: "neurodivergent",
-    name: "Neurodivergent / executive-function sensitive user",
-    lens: "sensitive to task switching, mental load, and ambiguous sequencing",
-    goal: "complete the task without losing place or momentum",
-    riskBias: "too many buttons, multi-step ambiguity, memory burden, competing paths",
-    patience: 42,
-    trust: 53,
-    accessibility: "needs clear prioritization, fewer simultaneous choices, and strong structure",
-    tone: "methodical but easily overloaded",
+    name: "Low-tech single parent",
+    lens: "time-constrained, multitasking, cautious with modern web patterns",
+    goal: "finish quickly while avoiding mistakes, surprises, or hidden costs",
+    riskBias: "dense copy, long forms, ambiguous pricing, unclear next steps, hidden consequences",
+    patience: 34,
+    trust: 50,
+    accessibility: "prefers large targets, clear labels, and short decision paths",
+    tone: "rushed, deliberate, and easily overloaded",
     penTest: false,
-    tags: ["accessibility", "cognitive-load", "density"]
+    tags: ["ux", "accessibility", "clarity"]
   },
   {
     id: "keyboard-only",
