@@ -38,6 +38,10 @@ const defaultCustomDraft = {
 type CustomDraft = typeof defaultCustomDraft;
 type FocusMetric = "confusion" | "trust" | "accessibility" | "abuse";
 type WorkspaceTab = "dashboard" | "github" | "assistant";
+type CloneDraft = {
+  source: Persona | null;
+  count: string;
+};
 type GitHubRepoSummary = {
   id: number;
   name: string;
@@ -87,6 +91,43 @@ function joinTags(tags: string[]) {
 
 function mergePersona(base: Persona | PersonaInput, override?: PersonaInput, index = 0) {
   return normalizePersona({ ...base, ...override, id: base.id }, index);
+}
+
+function cloneCountLabel(count: number) {
+  if (count <= 0) return "0";
+  if (count === 1) return "1 copy";
+  return `${count} copies`;
+}
+
+function normalizePersonaName(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function findFindingsForPersona(findings: SupervisorFindingCard[], personaName: string) {
+  const normalizedPersona = normalizePersonaName(personaName);
+  return findings.filter((finding) => {
+    const normalizedFinding = normalizePersonaName(finding.persona);
+    return (
+      normalizedFinding === normalizedPersona ||
+      normalizedFinding.includes(normalizedPersona) ||
+      normalizedPersona.includes(normalizedFinding)
+    );
+  });
+}
+
+function resolveSelectedOrder(selectedPersonas: Persona[], selectedOrderMap: Map<string, number>, personaName: string) {
+  const normalizedPersona = normalizePersonaName(personaName);
+  for (const persona of selectedPersonas) {
+    const normalizedSelected = normalizePersonaName(persona.name);
+    if (
+      normalizedSelected === normalizedPersona ||
+      normalizedSelected.includes(normalizedPersona) ||
+      normalizedPersona.includes(normalizedSelected)
+    ) {
+      return selectedOrderMap.get(persona.id) ?? 0;
+    }
+  }
+  return 0;
 }
 
 function arrayToggle(values: string[], value: string) {
@@ -249,7 +290,15 @@ function ScoreCard({
   );
 }
 
-function FindingCard({ finding, index }: { finding: SupervisorFindingCard; index: number }) {
+function FindingCard({
+  finding,
+  index,
+  agentNumber
+}: {
+  finding: SupervisorFindingCard;
+  index: number;
+  agentNumber?: number;
+}) {
   return (
     <article className={`finding-card severity-${finding.severity}`}>
       <div className="finding-head">
@@ -257,7 +306,7 @@ function FindingCard({ finding, index }: { finding: SupervisorFindingCard; index
         <div>
           <h3>{finding.theme}</h3>
           <p>
-            {finding.persona} felt {finding.emotion}. {finding.wingLabel}
+            Agent #{agentNumber ?? index + 1} · {finding.persona} felt {finding.emotion}. {finding.wingLabel}
           </p>
         </div>
         <span className="severity-pill">{finding.severity}</span>
@@ -273,6 +322,7 @@ function FindingCard({ finding, index }: { finding: SupervisorFindingCard; index
 function PersonaCard({
   persona,
   selected,
+  selectedOrder,
   onToggle,
   onEdit,
   onClone,
@@ -281,6 +331,7 @@ function PersonaCard({
 }: {
   persona: Persona;
   selected: boolean;
+  selectedOrder?: number;
   onToggle: () => void;
   onEdit?: () => void;
   onClone?: () => void;
@@ -288,13 +339,20 @@ function PersonaCard({
   isCustom: boolean;
 }) {
   return (
-    <button className={`persona-card ${selected ? "is-selected" : ""}`} type="button" onClick={onToggle}>
+    <button
+      className={`persona-card ${selected ? "is-selected" : "is-idle"}`}
+      type="button"
+      onClick={onToggle}
+      aria-pressed={selected}
+    >
       <div className="persona-card-top">
         <div>
           <strong>{persona.name}</strong>
           <span>{persona.lens}</span>
         </div>
-        <span className="persona-pill">{selected ? "Selected" : "Idle"}</span>
+        <span className={`persona-pill ${selected ? "is-selected" : "is-idle"}`}>
+            {selected ? `#${selectedOrder ?? 0}` : "Idle"}
+          </span>
       </div>
       <p>{persona.goal}</p>
       <div className="persona-meta">
@@ -344,6 +402,46 @@ function PersonaCard({
         ) : null}
       </div>
     </button>
+  );
+}
+
+function AgentResultCard({
+  persona,
+  order,
+  wingLabel,
+  findings,
+  selected
+}: {
+  persona: Persona;
+  order: number;
+  wingLabel: string;
+  findings: SupervisorFindingCard[];
+  selected: boolean;
+}) {
+  const primaryFinding = findings[0];
+  return (
+    <article className={`agent-result-card ${selected ? "is-selected" : "is-idle"}`}>
+      <div className="agent-result-top">
+        <div>
+          <span className="agent-result-order">#{order}</span>
+          <strong>{persona.name}</strong>
+          <p>{wingLabel}</p>
+        </div>
+        <span className={`severity-pill ${primaryFinding?.severity ?? "low"}`}>
+          {primaryFinding ? primaryFinding.severity : "idle"}
+        </span>
+      </div>
+      <p className="agent-result-title">{primaryFinding?.theme || "No dedicated finding yet"}</p>
+      <p className="agent-result-copy">
+        {primaryFinding
+          ? primaryFinding.evidence
+          : "This agent is selected and tracked separately, but no unique finding has been surfaced yet."}
+      </p>
+      <div className="agent-result-meta">
+        <span>{findings.length} finding{findings.length === 1 ? "" : "s"}</span>
+        <span>{persona.penTest ? "Red-team" : "UX"}</span>
+      </div>
+    </article>
   );
 }
 
@@ -498,6 +596,105 @@ function PersonaEditorModal({
           </button>
           <button className="button-primary" type="button" onClick={onSave}>
             Save changes
+            <span>→</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClonePersonaModal({
+  persona,
+  count,
+  onChangeCount,
+  onSave,
+  onDiscard
+}: {
+  persona: Persona | null;
+  count: string;
+  onChangeCount: (value: string) => void;
+  onSave: () => void;
+  onDiscard: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!persona) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDiscard();
+    };
+
+    document.addEventListener("keydown", keyHandler);
+
+    if (panelRef.current) {
+      gsap.fromTo(
+        panelRef.current,
+        { y: 24, opacity: 0, scale: 0.98, filter: "blur(12px)" },
+        { y: 0, opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.32, ease: "power3.out" }
+      );
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [onDiscard, persona]);
+
+  if (!persona) return null;
+
+  return (
+    <div className="persona-modal-backdrop" onMouseDown={onDiscard} role="presentation">
+      <div
+        className="persona-modal-panel"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clone-modal-title"
+        aria-describedby="clone-modal-description"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="persona-modal-head">
+          <div>
+            <p className="eyebrow">Clone persona</p>
+            <h3 id="clone-modal-title">{persona.name}</h3>
+            <p id="clone-modal-description">
+              Choose how many copies to create. Each clone gets a unique ID and is selected automatically.
+            </p>
+          </div>
+          <div className="persona-modal-id">
+            <span>Source</span>
+            <strong>{persona.id}</strong>
+          </div>
+        </div>
+
+        <div className="persona-modal-grid">
+          <label className="field wide">
+            <span>How many clones?</span>
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={count}
+              onChange={(event) => onChangeCount(event.target.value)}
+            />
+          </label>
+          <div className="clone-preview wide">
+            <span>Preview</span>
+            <strong>{cloneCountLabel(Math.max(1, Number(count) || 1))}</strong>
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button className="button-secondary" type="button" onClick={onDiscard}>
+            Discard
+          </button>
+          <button className="button-primary" type="button" onClick={onSave}>
+            Clone personas
             <span>→</span>
           </button>
         </div>
@@ -767,6 +964,56 @@ function PersonaAssistantPanel({
   );
 }
 
+function RunningSupervisorPanel({
+  uxCount,
+  redCount,
+  redTeamLevel
+}: {
+  uxCount: number;
+  redCount: number;
+  redTeamLevel: PentestLevel;
+}) {
+  return (
+    <div className="running-supervisor">
+      <div className="running-supervisor-head">
+        <div>
+          <p className="eyebrow">Supervisor running</p>
+          <h3>Parallel wings are working now</h3>
+          <p>UX agents and red-team agents are executing at the same time, each with its own lane.</p>
+        </div>
+        <span className="status-pill">{redTeamLevel}</span>
+      </div>
+
+      <div className="running-grid">
+        <div className="running-wing running-wing-ux">
+          <div className="running-wing-top">
+            <strong>UX Suite</strong>
+            <span>{uxCount} agents</span>
+          </div>
+          <div className="pulse-row" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <p>Scanning for confusion, trust breaks, overload, and accessibility friction.</p>
+        </div>
+        <div className="running-wing running-wing-red">
+          <div className="running-wing-top">
+            <strong>Red Team Suite</strong>
+            <span>{redCount} agents</span>
+          </div>
+          <div className="pulse-row" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <p>Probing for button mashing, repeated submits, bypasses, and weak boundaries.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const heroRef = useRef<HTMLDivElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
@@ -782,6 +1029,8 @@ export default function HomePage() {
   const [draft, setDraft] = useState<CustomDraft>(defaultCustomDraft);
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null);
   const [editingDraft, setEditingDraft] = useState<PersonaInput | null>(null);
+  const [cloningPersona, setCloningPersona] = useState<Persona | null>(null);
+  const [cloneCountDraft, setCloneCountDraft] = useState("1");
   const [result, setResult] = useState<SupervisorResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -827,6 +1076,14 @@ export default function HomePage() {
     [allPersonas, selectedIds]
   );
 
+  const selectedOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    selectedIds.forEach((id, index) => {
+      map.set(id, index + 1);
+    });
+    return map;
+  }, [selectedIds]);
+
   const uxSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => !persona.penTest), [selectedPersonas]);
   const redTeamSelectedPersonas = useMemo(() => selectedPersonas.filter((persona) => persona.penTest), [selectedPersonas]);
 
@@ -853,6 +1110,28 @@ export default function HomePage() {
         wingLabel: finding.wing === "ux" ? "UX Suite" : "Red Team Suite"
       })) ?? [],
     [result]
+  );
+
+  const selectedAgentCards = useMemo(
+    () =>
+      selectedPersonas.map((persona) => {
+        const order = selectedOrderMap.get(persona.id) ?? 0;
+        const wingLabel = persona.penTest ? "Red Team Suite" : "UX Suite";
+        const personaFindings = result ? findFindingsForPersona(supervisorFindings, persona.name) : [];
+        return {
+          persona,
+          order,
+          wingLabel,
+          findings: personaFindings,
+          selected: selectedIds.includes(persona.id)
+        };
+      }),
+    [result, selectedIds, selectedOrderMap, selectedPersonas, supervisorFindings]
+  );
+
+  const selectedAgentSummary = useMemo(
+    () => selectedAgentCards.map((entry) => `#${entry.order} ${entry.persona.name}`),
+    [selectedAgentCards]
   );
 
   useEffect(() => {
@@ -1116,15 +1395,38 @@ export default function HomePage() {
     setDraft(defaultCustomDraft);
   }
 
-  function clonePersona(persona: Persona) {
-    const cloneName = `${persona.name} Copy`;
-    const clone: PersonaInput = {
-      ...buildPersonaInput(persona),
-      id: `${persona.id}-copy-${Date.now()}`,
-      name: cloneName
-    };
-    setCustomPersonas((current) => [...current, clone]);
-    setSelectedIds((current) => [...new Set([...current, clone.id ?? ""])].filter((value): value is string => Boolean(value)));
+  function openCloneModal(persona: Persona) {
+    setCloningPersona(persona);
+    setCloneCountDraft("1");
+  }
+
+  function closeCloneModal() {
+    setCloningPersona(null);
+    setCloneCountDraft("1");
+  }
+
+  function confirmClonePersona() {
+    if (!cloningPersona) return;
+    const rawCount = Number.parseInt(cloneCountDraft, 10);
+    const count = Number.isFinite(rawCount) ? Math.min(12, Math.max(1, rawCount)) : 1;
+    const clones: PersonaInput[] = Array.from({ length: count }, (_, index) => {
+      const cloneIndex = index + 1;
+      return {
+        ...buildPersonaInput(cloningPersona),
+        id: `${cloningPersona.id}-copy-${Date.now()}-${cloneIndex}`,
+        name: `${cloningPersona.name} Copy ${cloneIndex}`
+      };
+    });
+
+    setCustomPersonas((current) => [...current, ...clones]);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      clones.forEach((clone) => {
+        if (clone.id) next.add(clone.id);
+      });
+      return Array.from(next);
+    });
+    closeCloneModal();
   }
 
   function removeCustomPersona(id: string) {
@@ -1276,14 +1578,16 @@ export default function HomePage() {
                 <div className="persona-grid">
                   {baselinePersonas.map((persona) => {
                     const selected = selectedIds.includes(persona.id);
+                    const selectedOrder = selectedOrderMap.get(persona.id);
                     return (
                       <PersonaCard
                         key={persona.id}
                         persona={persona}
                         selected={selected}
+                        selectedOrder={selectedOrder}
                         onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
                         onEdit={() => openPersonaEditor(persona)}
-                        onClone={() => clonePersona(persona)}
+                        onClone={() => openCloneModal(persona)}
                         isCustom={false}
                       />
                     );
@@ -1301,14 +1605,16 @@ export default function HomePage() {
                 <div className="persona-grid persona-grid-stress">
                   {stressLibrary.map((persona) => {
                     const selected = selectedIds.includes(persona.id);
+                    const selectedOrder = selectedOrderMap.get(persona.id);
                     return (
                       <PersonaCard
                         key={persona.id}
                         persona={persona}
                         selected={selected}
+                        selectedOrder={selectedOrder}
                         onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
                         onEdit={() => openPersonaEditor(persona)}
-                        onClone={() => clonePersona(persona)}
+                        onClone={() => openCloneModal(persona)}
                         isCustom={false}
                       />
                     );
@@ -1327,14 +1633,16 @@ export default function HomePage() {
                   {customLibrary.length ? (
                     customLibrary.map((persona) => {
                       const selected = selectedIds.includes(persona.id);
+                      const selectedOrder = selectedOrderMap.get(persona.id);
                       return (
                         <PersonaCard
                           key={persona.id}
                           persona={persona}
                           selected={selected}
+                          selectedOrder={selectedOrder}
                           onToggle={() => setSelectedIds((current) => arrayToggle(current, persona.id))}
                           onEdit={() => openPersonaEditor(persona)}
-                          onClone={() => clonePersona(persona)}
+                          onClone={() => openCloneModal(persona)}
                           onRemove={() => removeCustomPersona(persona.id)}
                           isCustom
                         />
@@ -1450,6 +1758,14 @@ export default function HomePage() {
                   </span>
                 </div>
 
+                {loading ? (
+                  <RunningSupervisorPanel
+                    uxCount={uxSelectedPersonas.length || baselinePersonas.length}
+                    redCount={redTeamSelectedPersonas.length || stressLibrary.length}
+                    redTeamLevel={redTeamLevel}
+                  />
+                ) : null}
+
                 <div className="supervisor-wing-grid">
                   {result ? (
                     <>
@@ -1461,6 +1777,27 @@ export default function HomePage() {
                       <p>Run Probelayer to launch the UX suite and the red-team suite together.</p>
                     </div>
                   )}
+                </div>
+
+                <div className="agent-roster">
+                  <div className="section-head inline">
+                    <h3>Selected agents</h3>
+                    <span className="status-pill">{selectedAgentSummary.length} tracked</span>
+                  </div>
+                  <div className="agent-roster-strip" role="list" aria-label="Selected agents">
+                    {selectedAgentCards.map((entry) => (
+                      <div key={entry.persona.id} className="agent-roster-chip" role="listitem">
+                        <span className="agent-roster-order">#{entry.order}</span>
+                        <div>
+                          <strong>{entry.persona.name}</strong>
+                          <p>{entry.wingLabel}</p>
+                        </div>
+                        <span className={`agent-roster-state ${entry.selected ? "is-selected" : "is-idle"}`}>
+                          {entry.selected ? "Selected" : "Idle"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="summary-grid">
@@ -1479,6 +1816,25 @@ export default function HomePage() {
                   <div className="summary-box">
                     <span>Supervisor</span>
                     <strong>{supervisorSummary.wingState}</strong>
+                  </div>
+                </div>
+
+                <div className="agent-results">
+                  <div className="section-head inline">
+                    <h3>Individual agent results</h3>
+                    <span className="status-pill">{selectedAgentCards.length} agents</span>
+                  </div>
+                  <div className="agent-results-grid">
+                    {selectedAgentCards.map((entry) => (
+                      <AgentResultCard
+                        key={entry.persona.id}
+                        persona={entry.persona}
+                        order={entry.order}
+                        wingLabel={entry.wingLabel}
+                        findings={entry.findings}
+                        selected={entry.selected}
+                      />
+                    ))}
                   </div>
                 </div>
 
@@ -1549,7 +1905,7 @@ export default function HomePage() {
                             } as CSSProperties
                           }
                         >
-                          <b>{index + 1}</b>
+                          <b>{resolveSelectedOrder(selectedPersonas, selectedOrderMap, finding.persona) || index + 1}</b>
                           <em>{finding.theme}</em>
                         </span>
                       ))}
@@ -1609,7 +1965,12 @@ export default function HomePage() {
                 <div className="findings-stack">
                   {result ? (
                     supervisorFindings.map((finding, index) => (
-                      <FindingCard key={`${finding.persona}-${index}`} finding={finding} index={index} />
+                      <FindingCard
+                        key={`${finding.persona}-${index}`}
+                        finding={finding}
+                        index={index}
+                        agentNumber={resolveSelectedOrder(selectedPersonas, selectedOrderMap, finding.persona)}
+                      />
                     ))
                   ) : (
                     <div className="empty-findings">
@@ -1733,6 +2094,13 @@ export default function HomePage() {
         onChange={setEditingDraft}
         onSave={savePersonaEdits}
         onDiscard={discardPersonaEdits}
+      />
+      <ClonePersonaModal
+        persona={cloningPersona}
+        count={cloneCountDraft}
+        onChangeCount={setCloneCountDraft}
+        onSave={confirmClonePersona}
+        onDiscard={closeCloneModal}
       />
     </main>
   );

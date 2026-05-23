@@ -266,6 +266,54 @@ export async function capturePage(targetUrl: string): Promise<{ screenshot: stri
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout });
   }
 
+  const rootSelector = targetUrl.includes("/demo-flow") ? ".demo-shell" : ".app-shell";
+  const readySelector = targetUrl.includes("/demo-flow")
+    ? [".demo-hero", ".demo-bento", ".demo-panel"]
+    : [".hero", ".card-shell", ".content-grid"];
+
+  for (const selector of readySelector) {
+    try {
+      await page.waitForSelector(selector, {
+        state: "visible",
+        timeout: Math.min(5000, timeout)
+      });
+      break;
+    } catch {
+      continue;
+    }
+  }
+
+  try {
+    await page.waitForFunction(
+      (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return false;
+        const style = window.getComputedStyle(element);
+        const paddingTop = Number.parseFloat(style.paddingTop || "0");
+        const background = style.backgroundColor || "";
+        return paddingTop > 0 || background !== "rgba(0, 0, 0, 0)";
+      },
+      rootSelector,
+      { timeout: Math.min(4500, timeout) }
+    );
+  } catch {
+    // If the page is fully rendered but the style probe never resolves, continue anyway.
+  }
+
+  try {
+    await page.evaluate(async () => {
+      const fontReady = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
+      if (fontReady) {
+        await fontReady.catch(() => undefined);
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+  } catch {
+    // Rendering may still be fine even if font readiness is unavailable.
+  }
+
+  await page.waitForTimeout(180);
+
   const facts = await page.evaluate(() => {
     const visibleText = (element: Element | null) => (element?.textContent ?? "").replace(/\s+/g, " ").trim();
 
@@ -420,6 +468,21 @@ function buildFallbackFinding(persona: Persona, facts: PageFacts, scenario: Anal
   const hasVagueContinue = facts.buttons.some((label) => /continue|next|submit|proceed/i.test(label));
   const dense = facts.textSample.length > 1200 || facts.buttons.length + facts.links.length > 22;
   const manyInputs = facts.inputs.length > 3;
+
+  if (persona.id === "button-masher") {
+    return {
+      persona: persona.name,
+      severity: facts.buttons.length > 0 || hasVagueContinue ? "high" : "medium",
+      theme: "Repeated-submit resilience",
+      evidence:
+        "This agent deliberately mashes buttons, double-clicks primary actions, and tests whether loading states block duplicate submits, back-button thrash, and impatient retries.",
+      recommendation:
+        "Disable primary actions while pending, make loading and success states explicit, and ensure repeated clicks do not create duplicate submissions or unstable navigation.",
+      x: 61,
+      y: 68,
+      emotion: "frustrated" as const
+    };
+  }
 
   if (scenario === "pen-test" || persona.penTest) {
     return {
@@ -657,7 +720,15 @@ async function modelFindings({
                 accessibility: persona.accessibility,
                 tone: persona.tone,
                 penTest: persona.penTest,
-                tags: persona.tags
+                tags: persona.tags,
+                notes:
+                  persona.id === "button-masher"
+                    ? "Repeated-submit and button-mashing checks: double-click the primary action, test disabled states, loading states, back-button thrash, and duplicate submit resistance."
+                    : persona.id === "red-team-tester"
+                      ? "Adversarial boundary checks: probe bypasses, weak guardrails, and policy or authorization leaks."
+                      : persona.penTest
+                        ? "Defensive abuse checks with careful, non-destructive probing."
+                        : "UX observation and friction analysis."
               })),
               pageFacts: facts,
               schema: {
