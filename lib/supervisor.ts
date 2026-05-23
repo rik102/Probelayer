@@ -71,13 +71,14 @@ function splitPersonas(personas: Persona[]) {
 }
 
 function mergeScores(ux: SimulationResult["scores"], redTeam: SimulationResult["scores"]): SimulationResult["scores"] {
+  const average = (left: number, right: number) => Math.round((left + right) / 2);
   return {
-    confusion: Math.max(ux.confusion, redTeam.confusion),
-    trustRisk: Math.max(ux.trustRisk, redTeam.trustRisk),
-    abandonment: Math.max(ux.abandonment, redTeam.abandonment),
-    exploitability: Math.max(ux.exploitability, redTeam.exploitability),
-    visualOverload: Math.max(ux.visualOverload, redTeam.visualOverload),
-    accessibilityFriction: Math.max(ux.accessibilityFriction, redTeam.accessibilityFriction)
+    confusion: average(ux.confusion, redTeam.confusion),
+    trustRisk: average(ux.trustRisk, redTeam.trustRisk),
+    abandonment: average(ux.abandonment, redTeam.abandonment),
+    exploitability: average(ux.exploitability, redTeam.exploitability),
+    visualOverload: average(ux.visualOverload, redTeam.visualOverload),
+    accessibilityFriction: average(ux.accessibilityFriction, redTeam.accessibilityFriction)
   };
 }
 

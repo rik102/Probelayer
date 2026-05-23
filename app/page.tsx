@@ -1004,6 +1004,31 @@ function RunningSupervisorPanel({
   redCount: number;
   redTeamLevel: PentestLevel;
 }) {
+  const loadingMessages = [
+    "Checking first-screen structure",
+    "Tracing repeated actions and exits",
+    "Reweighting trust and cost signals",
+    "Stitching wing findings together"
+  ];
+  const uxMessages = [
+    "Scanning for clarity gaps, layout pressure, and next-step confusion.",
+    "Looking for overloaded screens, trust breaks, and decision friction.",
+    "Checking copy, spacing, and action hierarchy for friction spikes."
+  ];
+  const redMessages = [
+    "Probing repeated clicks, bypasses, and weak boundaries.",
+    "Testing defensive states, idempotence, and policy seams.",
+    "Watching for abuse paths, duplicate submits, and unsafe control flow."
+  ];
+  const [stageIndex, setStageIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setStageIndex((current) => (current + 1) % loadingMessages.length);
+    }, 1400);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <div className="running-supervisor">
       <div className="running-supervisor-head">
@@ -1026,7 +1051,7 @@ function RunningSupervisorPanel({
             <span />
             <span />
           </div>
-          <p>Scanning for UX friction, layout pressure, and clarity gaps.</p>
+          <p>{uxMessages[stageIndex % uxMessages.length]}</p>
         </div>
         <div className="running-wing running-wing-red">
           <div className="running-wing-top">
@@ -1038,12 +1063,12 @@ function RunningSupervisorPanel({
             <span />
             <span />
           </div>
-          <p>Probing for repeated actions, bypasses, and weak boundaries.</p>
+          <p>{redMessages[stageIndex % redMessages.length]}</p>
         </div>
       </div>
       <div className="loading-grid" aria-hidden="true">
         <div className="loading-caption">
-          <span>Gathering signals</span>
+          <span>{loadingMessages[stageIndex]}</span>
           <span>Model + heuristics + browser capture</span>
         </div>
         <div className="loading-track">
@@ -1181,6 +1206,10 @@ export default function HomePage() {
     () => agentCards.filter((entry) => entry.selected).map((entry) => `#${entry.order} ${entry.persona.name}`),
     [agentCards]
   );
+
+  function scrollToAgentLibrary() {
+    document.getElementById("persona-library")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   useEffect(() => {
     const storedCustom = window.localStorage.getItem("probelayer-custom-personas");
@@ -1614,14 +1643,6 @@ export default function HomePage() {
 
             <div className="hero-settings">
               <label className="field">
-                <span>Scenario</span>
-                <select value={scenario} onChange={(event) => setScenario(event.target.value as AnalysisScenario)}>
-                  <option value="cognitive">Cognitive load</option>
-                  <option value="mobile">Mobile</option>
-                  <option value="pen-test">Pen-test</option>
-                </select>
-              </label>
-              <label className="field">
                 <span>Red-team depth</span>
                 <select value={redTeamLevel} onChange={(event) => setRedTeamLevel(event.target.value as PentestLevel)}>
                   <option value="quick">Quick</option>
@@ -1636,9 +1657,9 @@ export default function HomePage() {
                 {loading ? "Simulating..." : "Run supervisor"}
                 <span>→</span>
               </button>
-              <a className="button-secondary" href="#analysis">
-                Explore analysis
-              </a>
+              <button className="button-secondary" type="button" onClick={scrollToAgentLibrary}>
+                Choose agents to run
+              </button>
             </div>
             {error ? <p className="error-banner">{error}</p> : null}
           </form>
@@ -1660,14 +1681,14 @@ export default function HomePage() {
       {activeWorkspace === "dashboard" ? (
         <section className="content-grid" id="analysis">
           <div className="left-column">
-            <section className="floating-card card-shell reveal">
+            <section className="floating-card card-shell reveal" id="persona-library">
               <div className="card-core">
                 <p className="eyebrow">Persona library</p>
                 <div className="section-head">
-                  <h2>Default set plus custom personas</h2>
+                  <h2>Default UI personas plus custom personas</h2>
                   <p>
-                    Mix default personas with your own audience definitions, clone what works, and keep a
-                    persistent pack in local storage.
+                    Mix the default UI personas with your own audience definitions, clone what works, and keep
+                    a persistent pack in local storage.
                   </p>
                 </div>
 
@@ -1692,8 +1713,8 @@ export default function HomePage() {
 
                 <div className="section-head persona-subhead">
                   <div>
-                    <p className="eyebrow">Stress & abuse pack</p>
-                    <h3>Button mashers and pen-test agents</h3>
+                    <p className="eyebrow">Stress and abuse pack</p>
+                    <h3>Stress / abuse vulnerability agents</h3>
                   </div>
                   <p>These agents are ready for repeated submits, bypass attempts, and destructive-path checks.</p>
                 </div>
@@ -1859,136 +1880,6 @@ export default function HomePage() {
           <div className="right-column" ref={resultRef}>
             <section className="floating-card card-shell reveal">
               <div className="card-core">
-                <p className="eyebrow">Supervisor output</p>
-                <div className="section-head inline">
-                  <h2>Parallel wing report</h2>
-                  <span className="status-pill">
-                    {result?.usedModel ? "Gemini 3.5 Flash active" : "Heuristic fallback ready"}
-                  </span>
-                </div>
-
-                {loading ? (
-                  <RunningSupervisorPanel
-                    uxCount={uxSelectedPersonas.length || baselinePersonas.length}
-                    redCount={redTeamSelectedPersonas.length || stressLibrary.length}
-                    redTeamLevel={redTeamLevel}
-                  />
-                ) : null}
-
-                <div className="supervisor-wing-grid">
-                  {result ? (
-                    <>
-                      <WingSummaryCard wing={result.wings.ux} title="Wing 1" />
-                      <WingSummaryCard wing={result.wings.redTeam} title="Wing 2" />
-                    </>
-                  ) : (
-                    <div className="empty-findings persona-empty supervisor-empty">
-                      <p>Run Probelayer to launch the UX suite and the red-team suite together.</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="agent-roster">
-                  <div className="section-head inline">
-                    <h3>Agents</h3>
-                    <span className="status-pill">
-                      {selectedAgentSummary.length}/{agentCards.length} selected
-                    </span>
-                  </div>
-                  <div className="agent-roster-strip" role="list" aria-label="All agents">
-                    {agentCards.map((entry) => (
-                      <div
-                        key={entry.persona.id}
-                        className="agent-roster-chip"
-                        role="listitem"
-                        style={agentAccentStyle(entry.order, entry.selected)}
-                      >
-                        <span className="agent-roster-order">{entry.selected ? `#${entry.order}` : "Idle"}</span>
-                        <div>
-                          <strong>{entry.persona.name}</strong>
-                          <p>{entry.wingLabel}</p>
-                        </div>
-                        <span className={`agent-roster-state ${entry.selected ? "is-selected" : "is-idle"}`}>
-                          {entry.selected ? "Selected" : "Idle"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="summary-grid">
-                  <div className="summary-box">
-                    <span>Mode</span>
-                    <strong>{result ? result.scenario : scenario}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Depth</span>
-                    <strong>{redTeamLevel}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Inputs</span>
-                    <strong>{result ? result.pageFacts.analysisInputs.join(" + ") : "Screenshot + DOM + personas"}</strong>
-                  </div>
-                  <div className="summary-box">
-                    <span>Supervisor</span>
-                    <strong>{supervisorSummary.wingState}</strong>
-                  </div>
-                </div>
-
-                <div className="agent-results">
-                  <div className="agent-results-grid">
-                    {agentCards.map((entry) => (
-                      <AgentResultCard
-                        key={entry.persona.id}
-                        persona={entry.persona}
-                        order={entry.order}
-                        wingLabel={entry.wingLabel}
-                        findings={entry.findings}
-                        selected={entry.selected}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {result ? (
-                  <div className="score-grid">
-                    <ScoreCard
-                      label="Selected agents"
-                      value={selectedAgentSummary.length}
-                      description="These agents are active in this run."
-                    />
-                    <ScoreCard
-                      label="UX findings"
-                      value={result.wings.ux.findings.length}
-                      description="Friction, clarity, and usability issues."
-                    />
-                    <ScoreCard
-                      label="Red-team findings"
-                      value={result.wings.redTeam.findings.length}
-                      description="Abuse, bypass, and repeated-action risks."
-                    />
-                    <ScoreCard
-                      label="Strongest wing"
-                      value={Math.max(result.wings.ux.findings.length, result.wings.redTeam.findings.length)}
-                      description="The lane with the heavier signal this pass."
-                    />
-                    <ScoreCard
-                      label="Composite risk"
-                      value={Math.max(result.scores.abandonment, result.scores.exploitability)}
-                      description="Overall pressure from the two wings combined."
-                    />
-                    <ScoreCard
-                      label="Coverage strength"
-                      value={Math.max(result.pageFacts.buttonCount + result.pageFacts.inputCount, result.pageFacts.headingCount)}
-                      description="Signals available for the supervisor to inspect."
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="floating-card card-shell reveal">
-              <div className="card-core">
                 <p className="eyebrow">Visual map</p>
                 <div className="section-head inline">
                   <h2>Hotspots over the live screenshot</h2>
@@ -2063,9 +1954,61 @@ export default function HomePage() {
 
             <section className="floating-card card-shell reveal">
               <div className="card-core">
-                <p className="eyebrow">Findings</p>
+                <p className="eyebrow">Supervisor output</p>
                 <div className="section-head inline">
-                  <h2>Behavioral risk report</h2>
+                  <h2>Parallel wing report</h2>
+                  <span className="status-pill">
+                    {result?.usedModel ? "Gemini 3.5 Flash active" : "Heuristic fallback ready"}
+                  </span>
+                </div>
+
+                {loading ? (
+                  <RunningSupervisorPanel
+                    uxCount={uxSelectedPersonas.length || baselinePersonas.length}
+                    redCount={redTeamSelectedPersonas.length || stressLibrary.length}
+                    redTeamLevel={redTeamLevel}
+                  />
+                ) : null}
+
+                <div className="supervisor-wing-grid">
+                  {result ? (
+                    <>
+                      <WingSummaryCard wing={result.wings.ux} title="Wing 1" />
+                      <WingSummaryCard wing={result.wings.redTeam} title="Wing 2" />
+                    </>
+                  ) : (
+                    <div className="empty-findings persona-empty supervisor-empty">
+                      <p>Run Probelayer to launch the UX suite and the red-team suite together.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="summary-grid">
+                  <div className="summary-box">
+                    <span>Mode</span>
+                    <strong>{result ? result.scenario : scenario}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Depth</span>
+                    <strong>{redTeamLevel}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Inputs</span>
+                    <strong>{result ? result.pageFacts.analysisInputs.join(" + ") : "Screenshot + DOM + personas"}</strong>
+                  </div>
+                  <div className="summary-box">
+                    <span>Supervisor</span>
+                    <strong>{supervisorSummary.wingState}</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="floating-card card-shell reveal">
+              <div className="card-core">
+                <p className="eyebrow">Behavioral risk</p>
+                <div className="section-head inline">
+                  <h2>Findings with fixes</h2>
                   <span className="status-pill">{result ? `${result.findings.length} findings` : "Awaiting run"}</span>
                 </div>
 
@@ -2082,13 +2025,38 @@ export default function HomePage() {
                   ) : (
                     <div className="empty-findings">
                       <p>
-                        No findings yet. Select personas and run a simulation to surface wing-specific risks.
+                        No findings yet. Select personas and run a simulation to surface wing-specific risks and
+                        fixes.
                       </p>
                     </div>
                   )}
                 </div>
 
                 {result ? <p className="summary-copy">{result.summary}</p> : null}
+              </div>
+            </section>
+
+            <section className="floating-card card-shell reveal" id="agents">
+              <div className="card-core">
+                <p className="eyebrow">Agents</p>
+                <div className="section-head inline">
+                  <h2>Open an agent to inspect its notes</h2>
+                  <span className="status-pill">
+                    {selectedAgentSummary.length}/{agentCards.length} selected
+                  </span>
+                </div>
+                <div className="agent-results-grid">
+                  {agentCards.map((entry) => (
+                    <AgentResultCard
+                      key={entry.persona.id}
+                      persona={entry.persona}
+                      order={entry.order}
+                      wingLabel={entry.wingLabel}
+                      findings={entry.findings}
+                      selected={entry.selected}
+                    />
+                  ))}
+                </div>
               </div>
             </section>
           </div>
